@@ -1,0 +1,6 @@
+api:
+  listen: ":1984"
+  origin: "*"
+
+streams:
+  chassis: "exec:ffmpeg -f h264 -i unix:/tmp/h264_uds_chassis -c:v copy -f rtsp {output}"

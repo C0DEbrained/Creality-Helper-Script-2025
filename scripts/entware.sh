@@ -13,6 +13,40 @@ function entware_message(){
   bottom_line
 }
 
+function k1c_2025_opt_mount(){
+  if [ -f $ENTWARE_OPT_MOUNT ]; then
+    echo "Info: Existing /opt persistence file found. Skipping creation."
+  else
+    # Create 500mb image
+    echo "Info: Creating /opt image for persistence..."
+    dd if=/dev/zero of=$ENTWARE_OPT_MOUNT bs=1M count=500
+    mkfs.ext4 -F $ENTWARE_OPT_MOUNT
+  fi
+
+  if [ ! -f $INITD_FOLDER/S56entware ]; then
+    echo "Adding entware script to $INITD_FOLDER"
+    cat << EOF > $INITD_FOLDER/S56entware
+    #!/bin/sh
+    mkdir -p /opt
+    mount -o loop $ENTWARE_OPT_MOUNT /opt
+
+    # Start Entware services (if any are installed like SSH, lighttpd, etc.)
+    if [ -f /opt/etc/init.d/rc.unslung ]; then
+        /opt/etc/init.d/rc.unslung start
+    fi
+
+    ln -s /opt/libexec/sftp-server /usr/libexec/sftp-server
+
+    # Inject Entware into the system PATH globally for all users
+    echo 'export PATH=/opt/bin:/opt/sbin:$PATH' >> /etc/profile
+EOF
+    chmod +x $INITD_FOLDER/S56entware
+  fi
+
+  #Manually mount for now
+  mount -o loop $ENTWARE_OPT_MOUNT /opt
+}
+
 function install_entware(){
   entware_message
   local yn
@@ -23,8 +57,20 @@ function install_entware(){
         echo -e "${white}"
         echo -e "Info: Running Entware installer..."
         set +e
-        chmod 755 "$ENTWARE_URL"
-        sh "$ENTWARE_URL"
+        if [ "$model" = "K1C_2025" ]; then
+          k1c_2025_opt_mount
+          $HS_FILES/fixes/curl -L "https://bin.entware.net/mipselsf-k3.4/installer/generic.sh" | sh
+          export PATH=/opt/bin:/opt/sbin:$PATH
+
+          opkg install openssh-sftp-server
+          #Manually link. Will be done on boot by S56entware
+          ln -s /opt/libexec/sftp-server /usr/libexec/sftp-server
+        else
+          prepare_opt
+          chmod 755 "$ENTWARE_URL"
+          sh "$ENTWARE_URL"
+        fi
+
         set -e
         ok_msg "Entware has been installed successfully!"
         echo -e "   Disconnect and reconnect SSH session, and you can now install packages with: ${yellow}opkg install <packagename>${white}"

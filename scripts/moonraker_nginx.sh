@@ -61,6 +61,7 @@ function install_moonraker_nginx(){
         cp "$MOONRAKER_URL3" "$PRINTER_DATA_FOLDER"/moonraker.asvc
         echo -e "Info: Applying changes from official repo..."
         cd "$MOONRAKER_FOLDER"/moonraker
+        chown -R root:root .
         git stash; git checkout master; git pull
         echo -e "Info: Installing Supervisor Lite..."
         chmod 755 "$SUPERVISOR_URL"

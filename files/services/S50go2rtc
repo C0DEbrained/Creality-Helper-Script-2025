@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# Go2RTC Service
+# Credit: C0DEbrained
+#
+
+GO2RTC="/usr/data/go2rtc/go2rtc_linux_mipsel"
+PIDFILE="/var/run/go2rtc.pid"
+GO2RTC_ARGS="-d -c /usr/data/go2rtc/go2rtc.conf"
+
+case "$1" in
+  start)
+    echo "Starting go2rtc..."
+	start-stop-daemon -S -p "$PIDFILE" --exec "$GO2RTC" -- $GO2RTC_ARGS
+	;;
+  stop)
+    echo "Stopping GO2go2rtcRTC..."
+	start-stop-daemon -K -x "$GO2RTC" -p "$PIDFILE" -o
+	;;
+  reload|force-reload)
+    echo "Reloading go2rtc..."
+	"$GO2RTC" -s reload
+	;;
+  restart)
+	"$0" stop
+	sleep 1
+	"$0" start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart|reload|force-reload}"
+	exit 1
+esac

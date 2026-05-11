@@ -126,7 +126,7 @@ function allow_updating_klipper_files(){
       Y|y)
         echo -e "${white}"
         echo -e "Info: Restoring file..."
-        rm -f /etc/init.d/S55klipper_service
+        rm -f "$INITD_FOLDER"/S55klipper_service
         mv "$INITD_FOLDER"/disabled.S55klipper_service "$INITD_FOLDER"/S55klipper_service
         echo -e "Info: Restarting Klipper service..."
         restart_klipper

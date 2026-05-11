@@ -12,10 +12,18 @@ function set_paths() {
   green=`echo -en "\033[01;32m"`
   darkred=`echo -en "\033[31m"`
   red=`echo -en "\033[01;31m"`
+  strikethrough=`echo -en "\e[9m"`
 
   # System #
   CURL="${HELPER_SCRIPT_FOLDER}/files/fixes/curl"
-  INITD_FOLDER="/etc/init.d"
+  if [ "$model" = "K1C_2025" ]; then
+    INITD_FOLDER="/usr/apps/etc/init.d"
+    BIN_FOLDER="/usr/apps/usr/bin"
+  else
+    INITD_FOLDER="/etc/init.d"
+    BIN_FOLDER="/usr/bin"
+  fi
+
   USR_DATA="/usr/data"
   USR_SHARE="/usr/share"
   PRINTER_DATA_FOLDER="$USR_DATA/printer_data"
@@ -44,13 +52,13 @@ function set_paths() {
   NGINX_CONF_URL="${HS_FILES}/moonraker/nginx.conf"
   
   # Supervisor Lite #
-  SUPERVISOR_FILE="/usr/bin/supervisorctl"
+  SUPERVISOR_FILE="$BIN_FOLDER/supervisorctl"
   SUPERVISOR_URL="${HS_FILES}/fixes/supervisorctl"
 
   # Host Controls Support #
-  SYSTEMCTL_FILE="/usr/bin/systemctl"
+  SYSTEMCTL_FILE="$BIN_FOLDER/systemctl"
   SYSTEMCTL_URL="${HS_FILES}/fixes/systemctl"
-  SUDO_FILE="/usr/bin/sudo"
+  SUDO_FILE="$BIN_FOLDER/sudo"
   SUDO_URL="${HS_FILES}/fixes/sudo"
   
   # Klipper #
@@ -72,6 +80,7 @@ function set_paths() {
   # Entware #
   ENTWARE_FILE="/opt/bin/opkg"
   ENTWARE_URL="${HS_FILES}/entware/generic.sh"
+  ENTWARE_OPT_MOUNT="${USR_DATA}/entware_opt_mount.img"
 
   # Klipper Gcode Shell Command #
   KLIPPER_SHELL_FILE="${KLIPPER_EXTRAS_FOLDER}/gcode_shell_command.py"
@@ -172,7 +181,7 @@ function set_paths() {
   BOOT_DISPLAY_STOCK_URL="${HS_FILES}/boot-display/stock_boot_display.tar.gz"
   
   # Creality Web Interface #
-  CREALITY_WEB_FILE="/usr/bin/web-server"
+  CREALITY_WEB_FILE="${BIN_FOLDER}/web-server"
   
   # Guppy Screen #
   GUPPY_SCREEN_FOLDER="${USR_DATA}/guppyscreen"
@@ -187,6 +196,13 @@ function set_paths() {
   FLUIDD_LOGO_URL2="${HS_FILES}/fluidd-logos/logo_creality_v2.svg"
   FLUIDD_LOGO_URL3="${HS_FILES}/fluidd-logos/config.json"
 
+  # Go2rtc
+  GO2RTC_FILE="${USR_DATA}/go2rtc/go2rtc_linux_mipsel"
+  GO2RTC_URL="https://github.com/AlexxIT/go2rtc/releases/latest/download/go2rtc_linux_mipsel"
+  GO2RTC_CONFIG_FILE="${USR_DATA}/go2rtc/go2rtc.yaml"
+  GO2RTC_CONFIG_FILE_URL="${HS_FILES}/go2rtc/go2rtc.yaml"
+  GO2RTC_SERVICE_URL="${HS_FILES}/services/S50go2rtc"
+  GO2RTC_SERVICE_FILE="${INITD_FOLDER}/S50go2rtc"
 }
 
 function set_permissions() {

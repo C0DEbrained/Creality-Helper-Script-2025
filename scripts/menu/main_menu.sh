@@ -2,26 +2,6 @@
 
 set -e
 
-if [ ! -f /etc/init.d/S58factoryreset ]; then
-  cp /usr/data/helper-script/files/services/S58factoryreset /etc/init.d/S58factoryreset
-  chmod 755 /etc/init.d/S58factoryreset
-fi
-
-get_model=$( /usr/bin/get_sn_mac.sh model 2>&1 )
-if echo "$get_model" | grep -iq "K1"; then 
-  model="K1"
-elif echo "$get_model" | grep -iq "F001"; then 
-  model="3V3"
-elif echo "$get_model" | grep -iq "F002"; then 
-  model="3V3"
-elif echo "$get_model" | grep -iq "F005"; then 
-  model="3KE"
-elif echo "$get_model" | grep -iq "F003"; then 
-  model="10SE"
-elif echo "$get_model" | grep -iq "F004"; then
-  model="E5M"
-fi
-
 function get_script_version() {
   local version
   cd "${HELPER_SCRIPT_FOLDER}"
@@ -59,6 +39,7 @@ function main_menu_ui() {
   top_line
   title "• HELPER SCRIPT FOR CREALITY $(script_title) •" "${blue}"
   title "Copyright © Cyril Guislain (Guilouz)" "${white}"
+  title "K1C 2025 Support by @C0DEBrained" "${white}"
   inner_line
   title "/!\\ ONLY USE THIS SCRIPT WITH LATEST FIRMWARE VERSION /!\\" "${darkred}"
   inner_line
@@ -89,6 +70,8 @@ function main_menu() {
       1) clear
          if [ "$model" = "K1" ]; then
            install_menu_k1
+         elif [ "$model" = "K1C_2025" ]; then
+           install_menu_k1c_2025
          elif [ "$model" = "3V3" ]; then
            install_menu_3v3
          elif [ "$model" = "3KE" ]; then
@@ -102,6 +85,8 @@ function main_menu() {
       2) clear
          if [ "$model" = "K1" ]; then
            remove_menu_k1
+         elif [ "$model" = "K1C_2025" ]; then
+           remove_menu_k1c_2025
          elif [ "$model" = "3V3" ]; then
            remove_menu_3v3
          elif [ "$model" = "3KE" ]; then
@@ -115,6 +100,8 @@ function main_menu() {
       3) clear
          if [ "$model" = "K1" ]; then
            customize_menu_k1
+         elif [ "$model" = "K1C_2025" ]; then
+           customize_menu_k1c_2025
          elif [ "$model" = "3V3" ]; then
            customize_menu_3v3
          elif [ "$model" = "3KE" ]; then
@@ -131,6 +118,8 @@ function main_menu() {
       5) clear
          if [ "$model" = "K1" ]; then
            tools_menu_k1
+         elif [ "$model" = "K1C_2025" ]; then
+           tools_menu_k1c_2025
          elif [ "$model" = "3V3" ]; then
            tools_menu_3v3
          elif [ "$model" = "3KE" ]; then
@@ -144,6 +133,8 @@ function main_menu() {
       6) clear
          if [ "$model" = "K1" ]; then
            info_menu_k1
+         elif [ "$model" = "K1C_2025" ]; then
+           info_menu_k1c_2025
          elif [ "$model" = "3V3" ]; then
            info_menu_3v3
          elif [ "$model" = "3KE" ]; then

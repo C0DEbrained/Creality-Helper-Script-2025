@@ -11,6 +11,11 @@ if [ -t 1 ]; then  # colorize only if we're on a terminal
   ENDCOLOR='\033[0m'
 fi
 
+INITD_PATH="/etc/init.d"
+if [ "$(get_sn_mac.sh "model" || get_sn_mac.sh "model_str")" = "K1C" ]; then
+  INITD_PATH="/usr/apps/etc/init.d"
+fi
+
 get_services() {
   moonraker_pid="$(cat /var/run/moonraker.pid)"
   # if moonraker is running, get its config directory from its command line
@@ -20,7 +25,7 @@ get_services() {
     moonraker_conf="$moonraker_dir/config/moonraker.conf"
     # services="klipper moonraker $(awk '/managed_services:/ {print $2}' $moonraker_conf | sed 's/://')"
     # services=`(printf 'klipper\nmoonraker\n'; awk '/managed_services:/ {print $2}' $moonraker_conf | sed 's/://') | sort|uniq`
-    services=$(ls -1 /etc/init.d/S*|sed 's/.*\/S..//;s/_service$//')
+    services=$(ls -1 ${INITD_PATH}/S*|sed 's/.*\/S..//;s/_service$//')
     echo $services
   else
     echo "Error: Invalid or missing PID file /var/run/moonraker.pid" >&2
@@ -67,7 +72,7 @@ print_usage() {
 
 get_script_path() {
   service="$1"
-  script_path="$(ls -1 /etc/init.d/S[0-9][0-9]${service}_service /etc/init.d/S[0-9][0-9]${service}* 2>/dev/null|head -1)"
+  script_path="$(ls -1 ${INITD_PATH}/S[0-9][0-9]${service}_service ${INITD_PATH}/S[0-9][0-9]${service}* 2>/dev/null|head -1)"
   echo "$script_path"
 }
 

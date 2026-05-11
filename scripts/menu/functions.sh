@@ -61,6 +61,16 @@ function menu_option() {
   printf " │   ${yellow}${menu_number}${white}) ${white}${menu_text1} ${green}${menu_text2}%-${padding}s${white}│\n" ''
 }
 
+function disabled_menu_option() {
+  local menu_number=$1
+  local menu_text1=$2
+  local menu_text2="$3 (INCOMPLETE)"
+  local max_length=62
+  local total_text_length=$(( ${#menu_text1} + ${#menu_text2} + ${#menu_number} + 4 ))
+  local padding=$((max_length - total_text_length))
+  printf " │   ${red}${strikethrough}${menu_number}${white}) ${white}${menu_text1} ${red}${strikethrough}${menu_text2}${white}%-${padding}s${white}│\n" ''
+}
+
 function bottom_menu_option() {
   local menu_number=$1
   local menu_text=$2
@@ -145,54 +155,75 @@ function check_ipaddress() {
 
 function start_moonraker() {
   set +e
-  /etc/init.d/S56moonraker_service start
+  "$INITD_FOLDER"/S56moonraker_service start
   sleep 1
   set -e
 }
 
 function stop_moonraker() {
   set +e
-  /etc/init.d/S56moonraker_service stop
+  "$INITD_FOLDER"/S56moonraker_service stop
   sleep 1
   set -e
 }
 
 function start_nginx() {
   set +e
-  /etc/init.d/S50nginx start
+  "$INITD_FOLDER"/S50nginx start
   sleep 1
   set -e
 }
 
 function stop_nginx() {
   set +e
-  /etc/init.d/S50nginx stop
+  "$INITD_FOLDER"/S50nginx stop
   sleep 1
   set -e
 }
 
 function restart_nginx() {
   set +e
-  /etc/init.d/S50nginx restart
+  "$INITD_FOLDER"/S50nginx restart
+  sleep 1
+  set -e
+}
+
+function start_go2rtc() {
+  set +e
+  "$INITD_FOLDER"/S50go2rtc start
+  sleep 1
+  set -e
+}
+
+function stop_go2rtc() {
+  set +e
+  "$INITD_FOLDER"/S50go2rtc stop
+  sleep 1
+  set -e
+}
+
+function restart_go2rtc() {
+  set +e
+  "$INITD_FOLDER"/S50go2rtc restart
   sleep 1
   set -e
 }
 
 function start_klipper() {
   set +e
-  /etc/init.d/S55klipper_service start
+  "$INITD_FOLDER"/S55klipper_service start
   set -e
 }
 
 function stop_klipper() {
   set +e
-  /etc/init.d/S55klipper_service stop
+  "$INITD_FOLDER"/S55klipper_service stop
   set -e
 }
 
 function restart_klipper() {
   set +e
-  /etc/init.d/S55klipper_service restart
+  "$INITD_FOLDER"/S55klipper_service restart
   set -e
 }
 
