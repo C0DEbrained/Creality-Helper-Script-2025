@@ -13,6 +13,70 @@ function usb_camera_message(){
   bottom_line
 }
 
+function builtin_camera_message(){
+  top_line
+  title 'Built-in Camera Fix' "${yellow}"
+  inner_line
+  hr
+  echo -e " в”‚ ${cyan}This allows to use the K1C 2025 built-in camera with        ${white}в”‚"
+  echo -e " в”‚ ${cyan}Fluidd and Mainsail through mjpg-streamer.                  ${white}в”‚"
+  hr
+  bottom_line
+}
+
+function configure_usb_camera_k1c_2025(){
+  local usb_dev
+
+  if [ ! -f "$MOONRAKER_CFG" ]; then
+    return
+  fi
+
+  usb_dev=$(v4l2-ctl --list-devices | grep -A1 usb | sed 's/^[[:space:]]*//g' | grep '^/dev' | grep -v '^/dev/video0$' | head -n 1)
+  if [ -n "$usb_dev" ]; then
+    echo -e "Info: Configuring USB camera in moonraker.conf..."
+    sed -i '/^\[webcam usb\]/,/^$/d' "$MOONRAKER_CFG"
+    cat >> "$MOONRAKER_CFG" <<EOF
+
+[webcam usb]
+enabled: True
+location: printer
+service: mjpegstreamer
+target_fps: 15
+target_fps_idle: 5
+stream_url: /webcam2/?action=stream
+snapshot_url: /webcam2/?action=snapshot
+flip_horizontal: False
+flip_vertical: False
+rotation: 0
+aspect_ratio: 16:9
+EOF
+  fi
+}
+
+function configure_builtin_camera_k1c_2025(){
+  if [ ! -f "$MOONRAKER_CFG" ]; then
+    return
+  fi
+
+  echo -e "Info: Configuring built-in camera in moonraker.conf..."
+  sed -i '/^\[webcam chassis\]/,/^$/d' "$MOONRAKER_CFG"
+  cat >> "$MOONRAKER_CFG" <<EOF
+
+[webcam chassis]
+enabled: True
+location: printer
+service: mjpegstreamer
+target_fps: 15
+target_fps_idle: 5
+stream_url: /webcam/?action=stream
+snapshot_url: /webcam/?action=snapshot
+flip_horizontal: False
+flip_vertical: False
+rotation: 0
+aspect_ratio: 16:9
+EOF
+}
+
 function install_usb_camera(){
   usb_camera_message
   local yn
@@ -22,7 +86,9 @@ function install_usb_camera(){
       Y|y)
         echo -e "${white}"
         echo -e "Info: Copying file..."
-        if [ "$model" = "K1" ]; then
+        if [ "$model" = "K1C_2025" ]; then
+          cp "$USB_CAMERA_K1C_2025_URL" "$INITD_FOLDER"/S50usb_camera
+        elif [ "$model" = "K1" ]; then
           cp "$USB_CAMERA_DUAL_URL" "$INITD_FOLDER"/S50usb_camera
         else
           cp "$USB_CAMERA_SINGLE_URL" "$INITD_FOLDER"/S50usb_camera
@@ -60,10 +126,89 @@ function install_usb_camera(){
         "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
         echo -e "Info: Starting service..."
         "$INITD_FOLDER"/S50usb_camera start
+        if [ "$model" = "K1C_2025" ]; then
+          configure_usb_camera_k1c_2025
+          if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
+            stop_moonraker
+            start_moonraker
+          fi
+        fi
         ok_msg "USB Camera Support has been installed successfully!"
         return;;
       N|n)
         error_msg "Installation canceled!"
+        return;;
+      *)
+        error_msg "Please select a correct choice!";;
+    esac
+  done
+}
+
+function install_builtin_camera(){
+  builtin_camera_message
+  local yn
+  while true; do
+    install_msg "Built-in Camera Fix" yn
+    case "${yn}" in
+      Y|y)
+        echo -e "${white}"
+        echo -e "Info: Copying file..."
+        cp "$BUILTIN_CAMERA_K1C_2025_URL" "$BUILTIN_CAMERA_FILE"
+        chmod 755 "$BUILTIN_CAMERA_FILE"
+        echo -e "Info: Installing necessary packages..."
+        "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
+        echo -e "Info: Starting service..."
+        "$BUILTIN_CAMERA_FILE" start
+        configure_builtin_camera_k1c_2025
+        if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
+          stop_moonraker
+          start_moonraker
+        fi
+        ok_msg "Built-in Camera Fix has been installed successfully!"
+        return;;
+      N|n)
+        error_msg "Installation canceled!"
+        return;;
+      *)
+        error_msg "Please select a correct choice!";;
+    esac
+  done
+}
+
+function remove_builtin_camera(){
+  builtin_camera_message
+  local yn
+  while true; do
+    remove_msg "Built-in Camera Fix" yn
+    case "${yn}" in
+      Y|y)
+        echo -e "${white}"
+        echo -e "Info: Stopping service..."
+        "$BUILTIN_CAMERA_FILE" stop
+        echo -e "Info: Removing file..."
+        rm -f "$BUILTIN_CAMERA_FILE"
+        if [ -f "$MOONRAKER_CFG" ]; then
+          echo -e "Info: Removing built-in camera configuration in moonraker.conf file..."
+          sed -i '/^\[webcam chassis\]/,/^$/d' "$MOONRAKER_CFG"
+          if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
+            stop_moonraker
+            start_moonraker
+          fi
+        fi
+        echo -e "Info: Removing packages..."
+        set +e
+        if [ ! -f "$USB_CAMERA_FILE" ]; then
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-www
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-output-http
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-uvc
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-http
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer
+        fi
+        set -e
+        ok_msg "Built-in Camera Fix has been removed successfully!"
+        return;;
+      N|n)
+        error_msg "Deletion canceled!"
         return;;
       *)
         error_msg "Please select a correct choice!";;
@@ -83,13 +228,23 @@ function remove_usb_camera(){
         "$INITD_FOLDER"/S50usb_camera stop
         echo -e "Info: Removing file..."
         rm -f "$INITD_FOLDER"/S50usb_camera
+        if [ "$model" = "K1C_2025" ] && [ -f "$MOONRAKER_CFG" ]; then
+          echo -e "Info: Removing USB Camera configurations in moonraker.conf file..."
+          sed -i '/^\[webcam usb\]/,/^$/d' "$MOONRAKER_CFG"
+          if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
+            stop_moonraker
+            start_moonraker
+          fi
+        fi
         echo -e "Info: Removing packages..."
         set +e
-        "$ENTWARE_FILE" --autoremove remove mjpg-streamer-www
-        "$ENTWARE_FILE" --autoremove remove mjpg-streamer-output-http
-        "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-uvc
-        "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-http
-        "$ENTWARE_FILE" --autoremove remove mjpg-streamer
+        if [ "$model" != "K1C_2025" ] || [ ! -f "$BUILTIN_CAMERA_FILE" ]; then
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-www
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-output-http
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-uvc
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer-input-http
+          "$ENTWARE_FILE" --autoremove remove mjpg-streamer
+        fi
         set -e
         ok_msg "USB Camera Support has been removed successfully!"
         echo -e "   Please reboot your printer by using power switch on back!"

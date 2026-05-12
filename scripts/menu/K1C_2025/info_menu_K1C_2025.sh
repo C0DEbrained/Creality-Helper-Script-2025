@@ -60,6 +60,7 @@ function info_menu_ui_k1c_2025() {
   info_line "$(check_file_k1c_2025 "$TIMELAPSE_FILE")" 'Moonraker Timelapse'
   info_line "$(check_file_k1c_2025 "$CAMERA_SETTINGS_FILE")" 'Camera Settings Control'
   info_line "$(check_file_k1c_2025 "$USB_CAMERA_FILE")" 'USB Camera Support'
+  info_line "$(check_file_k1c_2025 "$BUILTIN_CAMERA_FILE")" 'Built-in Camera Fix'
   hr
   subtitle '•REMOTE ACCESS:'
   info_line "$(check_folder_k1c_2025 "$OCTOEVERYWHERE_FOLDER")" 'OctoEverywhere'

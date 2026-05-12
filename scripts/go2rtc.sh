@@ -36,9 +36,7 @@ rotation: 0
 aspect_ratio: 16:9
 EOF
     else
-      echo -e "Info: K1C 2025 chassis camera is already configured in moonraker.conf..."
-      sed -i '/^\[webcam chassis\]/,/^\[/ s|^stream_url:.*|stream_url: /go2rtc/api/stream.mp4?src=chassis|' "$MOONRAKER_CFG"
-      sed -i '/^\[webcam chassis\]/,/^\[/ s|^snapshot_url:.*|snapshot_url: /go2rtc/api/frame.jpeg?src=chassis|' "$MOONRAKER_CFG"
+      echo -e "Info: K1C 2025 chassis camera is already configured in moonraker.conf. Keeping existing camera URLs..."
     fi
   fi
 

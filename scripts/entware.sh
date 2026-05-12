@@ -61,6 +61,8 @@ function install_entware(){
           k1c_2025_opt_mount
           $HS_FILES/fixes/curl -L "https://bin.entware.net/mipselsf-k3.4/installer/generic.sh" | sh
           export PATH=/opt/bin:/opt/sbin:$PATH
+          sed -i '1s|.*|src/gz entware http://bin.tranducanh.com/mipselsf-k3.4|' /opt/etc/opkg.conf
+          opkg update
 
           opkg install openssh-sftp-server
           #Manually link. Will be done on boot by S56entware

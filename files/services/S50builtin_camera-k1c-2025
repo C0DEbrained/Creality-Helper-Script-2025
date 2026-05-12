@@ -1,0 +1,28 @@
+#!/bin/sh
+# K1C 2025 Built-in Camera Service
+
+case "$1" in
+  start)
+    echo "Starting Built-in Camera..."
+    if [ ! -e /dev/video0 ]; then
+      echo "Error: Built-in camera /dev/video0 not found!"
+      exit 1
+    fi
+    /opt/bin/mjpg_streamer -b -i "/opt/lib/mjpg-streamer/input_uvc.so -d /dev/video0 -r 1280x720 -f 15" -o "/opt/lib/mjpg-streamer/output_http.so -p 8080"
+    ;;
+  stop)
+    echo "Stopping Built-in Camera..."
+    PIDS=$(ps | grep '[m]jpg_streamer' | grep 'output_http.so -p 8080' | awk '{print $1}')
+    [ -n "$PIDS" ] && kill $PIDS
+    ;;
+  restart|reload)
+    "$0" stop
+    sleep 1
+    "$0" start
+    ;;
+  *)
+    echo "Usage: /etc/init.d/S50builtin_camera {start|stop|restart}"
+    exit 1
+esac
+
+exit $?
