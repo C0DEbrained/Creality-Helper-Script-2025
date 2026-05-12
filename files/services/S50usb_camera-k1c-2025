@@ -4,7 +4,7 @@
 case "$1" in
   start)
     echo "Starting USB Camera..."
-    PORT=8081
+    PORT=8082
     BUILTIN_DEV="/dev/video0"
     V4L_DEVS=$(v4l2-ctl --list-devices | grep -A1 usb | sed 's/^[[:space:]]*//g' | grep '^/dev' | grep -v "^$BUILTIN_DEV$")
     if [ "x$V4L_DEVS" = "x" ]; then
@@ -18,7 +18,7 @@ case "$1" in
     ;;
   stop)
     echo "Stopping USB Camera..."
-    PIDS=$(ps | grep '[m]jpg_streamer' | grep 'output_http.so -p 808[1-9]' | awk '{print $1}')
+    PIDS=$(ps | grep '[m]jpg_streamer' | grep 'output_http.so -p 808[2-9]' | awk '{print $1}')
     [ -n "$PIDS" ] && kill $PIDS
     ;;
   restart|reload)

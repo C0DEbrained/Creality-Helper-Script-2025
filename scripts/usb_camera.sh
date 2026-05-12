@@ -43,8 +43,8 @@ location: printer
 service: mjpegstreamer
 target_fps: 15
 target_fps_idle: 5
-stream_url: /webcam2/?action=stream
-snapshot_url: /webcam2/?action=snapshot
+stream_url: /webcam3/?action=stream
+snapshot_url: /webcam3/?action=snapshot
 flip_horizontal: False
 flip_vertical: False
 rotation: 0
