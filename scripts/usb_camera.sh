@@ -184,7 +184,9 @@ function remove_builtin_camera(){
       Y|y)
         echo -e "${white}"
         echo -e "Info: Stopping service..."
+        set +e
         "$BUILTIN_CAMERA_FILE" stop
+        set -e
         echo -e "Info: Removing file..."
         rm -f "$BUILTIN_CAMERA_FILE"
         if [ -f "$MOONRAKER_CFG" ]; then
@@ -225,7 +227,9 @@ function remove_usb_camera(){
       Y|y)
         echo -e "${white}"
         echo -e "Info: Stopping service..."
+        set +e
         "$INITD_FOLDER"/S50usb_camera stop
+        set -e
         echo -e "Info: Removing file..."
         rm -f "$INITD_FOLDER"/S50usb_camera
         if [ "$model" = "K1C_2025" ] && [ -f "$MOONRAKER_CFG" ]; then

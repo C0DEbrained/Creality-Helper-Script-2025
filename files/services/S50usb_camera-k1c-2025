@@ -20,6 +20,7 @@ case "$1" in
     echo "Stopping USB Camera..."
     PIDS=$(ps | grep '[m]jpg_streamer' | grep 'output_http.so -p 808[2-9]' | awk '{print $1}')
     [ -n "$PIDS" ] && kill $PIDS
+    exit 0
     ;;
   restart|reload)
     "$0" stop
