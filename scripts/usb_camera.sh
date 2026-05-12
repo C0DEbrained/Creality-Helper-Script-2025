@@ -77,6 +77,23 @@ aspect_ratio: 16:9
 EOF
 }
 
+function ensure_mjpg_streamer_packages(){
+  if "$ENTWARE_FILE" list | grep -q '^mjpg-streamer '; then
+    return
+  fi
+
+  if [ "$model" = "K1C_2025" ]; then
+    echo -e "Info: Updating Entware repository for mjpg-streamer packages..."
+    sed -i '1s|.*|src/gz entware http://bin.tranducanh.com/mipselsf-k3.4|' /opt/etc/opkg.conf
+    "$ENTWARE_FILE" update
+  fi
+
+  if ! "$ENTWARE_FILE" list | grep -q '^mjpg-streamer '; then
+    error_msg "mjpg-streamer packages are not available in the configured Entware repository!"
+    return 1
+  fi
+}
+
 function install_usb_camera(){
   usb_camera_message
   local yn
@@ -123,6 +140,7 @@ function install_usb_camera(){
         fi
         chmod 755 "$INITD_FOLDER"/S50usb_camera
         echo -e "Info: Installing necessary packages..."
+        ensure_mjpg_streamer_packages
         "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
         echo -e "Info: Starting service..."
         "$INITD_FOLDER"/S50usb_camera start
@@ -156,6 +174,7 @@ function install_builtin_camera(){
         cp "$BUILTIN_CAMERA_K1C_2025_URL" "$BUILTIN_CAMERA_FILE"
         chmod 755 "$BUILTIN_CAMERA_FILE"
         echo -e "Info: Installing necessary packages..."
+        ensure_mjpg_streamer_packages
         "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
         echo -e "Info: Starting service..."
         "$BUILTIN_CAMERA_FILE" start
