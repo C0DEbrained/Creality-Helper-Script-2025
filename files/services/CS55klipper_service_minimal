@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# Klipper service (minimal, K1C 2025+ apps layout).
+# - No copy_config / update_config on start (Helper Script "Prevent updating" goal).
+# - No mcu_reset via /etc/init.d/S57klipper_mcu — that init script is not used on
+#   this platform; MCU maintenance is via /usr/apps/usr/bin/*_klipper_mcu_restart.sh.
+#
+
+USER_DATA="/usr/data"
+PROG="/usr/share/klippy-env/bin/python"
+PY_SCRIPT="/usr/share/klipper/klippy/klippy.py"
+PRINTER_DATA_DIR="$USER_DATA/printer_data"
+PRINTER_CONFIG_DIR="$PRINTER_DATA_DIR/config"
+PRINTER_LOGS_DIR="$PRINTER_DATA_DIR/logs"
+PID_FILE="/home/creality/run/klippy.pid"
+
+if [ ! -f "$PY_SCRIPT" ]; then
+  PY_SCRIPT="/usr/share/klipper/klippy/klippy.pyc"
+fi
+
+start() {
+  mkdir -p "$PRINTER_DATA_DIR" "$PRINTER_CONFIG_DIR" "$PRINTER_LOGS_DIR" \
+    "$(dirname "$PID_FILE")" 2>/dev/null
+  HOME="/root" start-stop-daemon -S -q -b -m -p "$PID_FILE" \
+    --exec "$PROG" -- "$PY_SCRIPT" \
+    "$PRINTER_CONFIG_DIR"/printer.cfg \
+    -l "$PRINTER_LOGS_DIR"/klippy.log \
+    -a "/tmp/klippy_uds"
+}
+
+stop() {
+  start-stop-daemon -K -q -p "$PID_FILE"
+}
+
+restart() {
+  stop
+  start
+}
+
+case "$1" in
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart|reload)
+    restart
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac
+
+exit $?

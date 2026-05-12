@@ -44,13 +44,13 @@ function tools_menu_k1c_2025() {
     read -p " ${white}Type your choice and validate with Enter: ${yellow}" tools_menu_opt
     case "${tools_menu_opt}" in
       1)
-        if [ -f "$INITD_FOLDER"/disabled.S55klipper_service ]; then
+        if [ -f "$INITD_FOLDER"/disabled.S55klipper_service ] || [ -f "$INITD_FOLDER"/disabled.CS55klipper_service ]; then
           error_msg "Updating Klipper configuration files is already prevented!"
         else
           run "prevent_updating_klipper_files" "tools_menu_ui_k1c_2025"
         fi;;
       2)
-        if [ ! -f "$INITD_FOLDER"/disabled.S55klipper_service ]; then
+        if [ ! -f "$INITD_FOLDER"/disabled.S55klipper_service ] && [ ! -f "$INITD_FOLDER"/disabled.CS55klipper_service ]; then
           error_msg "Updating Klipper configuration files is already allowed!"
         else
           run "allow_updating_klipper_files" "tools_menu_ui_k1c_2025"

@@ -65,7 +65,11 @@ function set_paths() {
   KLIPPER_EXTRAS_FOLDER="/usr/share/klipper/klippy/extras"
   KLIPPER_CONFIG_FOLDER="${PRINTER_DATA_FOLDER}/config"
   KLIPPER_KLIPPY_FOLDER="/usr/share/klipper/klippy"
-  KLIPPER_SERVICE_URL="${HS_FILES}/services/S55klipper_service"
+  if [ "$model" = "K1C_2025" ]; then
+    KLIPPER_SERVICE_URL="${HS_FILES}/services/CS55klipper_service_minimal"
+  else
+    KLIPPER_SERVICE_URL="${HS_FILES}/services/S55klipper_service"
+  fi
   KLIPPER_GCODE_URL="${HS_FILES}/fixes/gcode.py"
   KLIPPER_GCODE_3V3_URL="${HS_FILES}/fixes/gcode_3v3.py"
   
