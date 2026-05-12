@@ -29,6 +29,22 @@ function moonraker_3v3_message(){
   bottom_line
 }
 
+function configure_moonraker_nginx_k1c_2025(){
+  local nginx_conf
+
+  if [ -f "$MOONRAKER_CFG" ]; then
+    echo -e "Info: Setting Moonraker port to 7126..."
+    sed -i 's/^port:[[:space:]]*7125$/port: 7126/' "$MOONRAKER_CFG"
+  fi
+
+  for nginx_conf in "$NGINX_FOLDER"/nginx/nginx.conf /etc/nginx/nginx.conf; do
+    if [ -f "$nginx_conf" ]; then
+      echo -e "Info: Pointing Nginx Moonraker upstream to port 7126 in $nginx_conf..."
+      sed -i 's/server 127\.0\.0\.1:7125;/server 127.0.0.1:7126;/' "$nginx_conf"
+    fi
+  done
+}
+
 function install_moonraker_nginx(){
   moonraker_nginx_message
   local yn
@@ -59,6 +75,9 @@ function install_moonraker_nginx(){
           rm -f "$PRINTER_DATA_FOLDER"/moonraker.asvc
         fi
         cp "$MOONRAKER_URL3" "$PRINTER_DATA_FOLDER"/moonraker.asvc
+        if [ "$model" = "K1C_2025" ]; then
+          configure_moonraker_nginx_k1c_2025
+        fi
         echo -e "Info: Applying changes from official repo..."
         cd "$MOONRAKER_FOLDER"/moonraker
         chown -R root:root .
