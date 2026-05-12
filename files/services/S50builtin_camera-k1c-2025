@@ -33,10 +33,6 @@ case "$1" in
     fi
     PIDS=$(ps | grep '[m]jpg_streamer' | grep -E 'input_uvc.so.*-d /dev/video0|output_http.so -p 3000|output_http.so -p 8080' | awk '{print $1}')
     [ -n "$PIDS" ] && kill $PIDS
-    if [ -f /usr/apps/etc/init.d/CS59quintusp ]; then
-      /usr/apps/etc/init.d/CS59quintusp stop 2>/dev/null || true
-    fi
-    killall quintusp 2>/dev/null || true
     /opt/bin/mjpg_streamer -b -i "/opt/lib/mjpg-streamer/input_uvc.so -d /dev/video0 -r 320x240 -f 15" -o "/opt/lib/mjpg-streamer/output_http.so -p 8080"
     ;;
   stop)

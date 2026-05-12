@@ -119,21 +119,6 @@ function restore_entware_builtin_mjpg_streamer(){
   fi
 }
 
-function disable_quintusp_camera_service(){
-  if [ "$model" != "K1C_2025" ]; then
-    return
-  fi
-
-  if [ -f "$QUINTUSP_SERVICE_FILE" ]; then
-    echo -e "Info: Disabling conflicting Creality quintusp service..."
-    set +e
-    "$QUINTUSP_SERVICE_FILE" stop
-    killall quintusp 2>/dev/null
-    set -e
-    mv "$QUINTUSP_SERVICE_FILE" "$QUINTUSP_DISABLED_FILE"
-  fi
-}
-
 function restore_quintusp_camera_service(){
   if [ "$model" != "K1C_2025" ]; then
     return
@@ -142,6 +127,63 @@ function restore_quintusp_camera_service(){
   if [ -f "$QUINTUSP_DISABLED_FILE" ]; then
     echo -e "Info: Restoring Creality quintusp service..."
     mv "$QUINTUSP_DISABLED_FILE" "$QUINTUSP_SERVICE_FILE"
+  fi
+}
+
+function patch_quintusp_camera_config(){
+  if [ "$model" != "K1C_2025" ]; then
+    return
+  fi
+
+  restore_quintusp_camera_service
+
+  if [ ! -f "$QUINTUSP_CONFIG_FILE" ]; then
+    return
+  fi
+
+  echo -e "Info: Disabling chassis camera capture in quintusp config..."
+  if [ ! -f "$QUINTUSP_CONFIG_BACKUP_FILE" ]; then
+    cp "$QUINTUSP_CONFIG_FILE" "$QUINTUSP_CONFIG_BACKUP_FILE"
+  fi
+
+  /usr/share/klippy-env/bin/python - "$QUINTUSP_CONFIG_FILE" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    data = json.load(f)
+
+data.setdefault("hardware", {})["cam_chassis"] = []
+
+with open(path, "w") as f:
+    json.dump(data, f, indent=4)
+PY
+
+  if [ -f "$QUINTUSP_SERVICE_FILE" ]; then
+    set +e
+    "$QUINTUSP_SERVICE_FILE" restart
+    set -e
+  fi
+}
+
+function restore_quintusp_camera_config(){
+  if [ "$model" != "K1C_2025" ]; then
+    return
+  fi
+
+  restore_quintusp_camera_service
+
+  if [ -f "$QUINTUSP_CONFIG_BACKUP_FILE" ]; then
+    echo -e "Info: Restoring Creality quintusp camera configuration..."
+    cp "$QUINTUSP_CONFIG_BACKUP_FILE" "$QUINTUSP_CONFIG_FILE"
+    rm -f "$QUINTUSP_CONFIG_BACKUP_FILE"
+  fi
+
+  if [ -f "$QUINTUSP_SERVICE_FILE" ]; then
+    set +e
+    "$QUINTUSP_SERVICE_FILE" restart
+    set -e
   fi
 }
 
@@ -236,7 +278,7 @@ function install_builtin_camera(){
         echo -e "${white}"
         k1c_2025_migrate_entware_boot_if_needed
         disable_entware_builtin_mjpg_streamer
-        disable_quintusp_camera_service
+        patch_quintusp_camera_config
         echo -e "Info: Copying file..."
         set +e
         [ -f "$BUILTIN_CAMERA_LEGACY_FILE" ] && "$BUILTIN_CAMERA_LEGACY_FILE" stop
@@ -283,7 +325,7 @@ function remove_builtin_camera(){
         rm -f "$BUILTIN_CAMERA_FILE"
         rm -f "$BUILTIN_CAMERA_LEGACY_FILE"
         restore_entware_builtin_mjpg_streamer
-        restore_quintusp_camera_service
+        restore_quintusp_camera_config
         if [ -f "$MOONRAKER_CFG" ]; then
           echo -e "Info: Removing built-in camera configuration in moonraker.conf file..."
           sed -i '/^\[webcam chassis\]/,/^$/d' "$MOONRAKER_CFG"
