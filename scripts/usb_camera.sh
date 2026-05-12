@@ -223,6 +223,10 @@ function install_usb_camera(){
 
 function install_builtin_camera(){
   builtin_camera_message
+  echo
+  echo -e " ${yellow}Warning: Built-in camera access through CrealityPrint"
+  echo -e " will stop working while this fix is installed.${white}"
+  echo
   local yn
   while true; do
     install_msg "Built-in Camera Fix" yn
