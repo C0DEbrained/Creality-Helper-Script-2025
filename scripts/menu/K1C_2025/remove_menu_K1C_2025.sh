@@ -11,16 +11,17 @@ function remove_menu_ui_k1c_2025() {
   menu_option ' 1' 'Remove' 'Moonraker and Nginx'
   menu_option ' 2' 'Remove' 'Fluidd (port 4408)'
   menu_option ' 3' 'Remove' 'Mainsail (port 4409)'
+  menu_option ' 4' 'Remove' 'Reccon'
   hr
   subtitle '•UTILITIES:'
-  menu_option ' 4' 'Remove' 'Entware'
-  menu_option ' 5' 'Remove' 'Klipper Gcode Shell Command'
+  menu_option ' 5' 'Remove' 'Entware'
+  menu_option ' 6' 'Remove' 'Klipper Gcode Shell Command'
   hr
   subtitle '•CAMERA:'
-  menu_option ' 6' 'Remove' 'Go2rtc'
-  menu_option ' 7' 'Remove' 'USB Camera Support'
-  menu_option ' 8' 'Remove' 'Built-in Camera Fix'
-  menu_option ' 9' 'Remove' 'Camera Settings Control'
+  menu_option ' 7' 'Remove' 'Go2rtc'
+  menu_option ' 8' 'Remove' 'USB Camera Support'
+  menu_option ' 9' 'Remove' 'Built-in Camera Fix'
+  menu_option '10' 'Remove' 'Camera Settings Control'
 #  hr
 #  subtitle '•IMPROVEMENTS:'
 #  disabled_menu_option ' 6' 'Remove' 'Klipper Adaptive Meshing & Purging'
@@ -92,6 +93,12 @@ function remove_menu_k1c_2025() {
           run "remove_mainsail" "remove_menu_ui_k1c_2025"
         fi;;
       4)
+        if [ ! -f "$RECCON_FILE" ] && [ ! -f "$RECCON_SERVICE_FILE" ]; then
+          error_msg "Reccon is not installed!"
+        else
+          run "remove_reccon" "remove_menu_ui_k1c_2025"
+        fi;;
+      5)
         if [ ! -f "$ENTWARE_FILE" ]; then
           error_msg "Entware is not installed!"
         elif [ -f "$TIMELAPSE_FILE" ]; then
@@ -109,7 +116,7 @@ function remove_menu_k1c_2025() {
         else
           run "remove_entware" "remove_menu_ui_k1c_2025"
         fi;;
-      5)
+      6)
         if [ ! -f "$KLIPPER_SHELL_FILE" ]; then
           error_msg "Klipper Gcode Shell Command is not installed!"
         elif [ -f "$BUZZER_FILE" ]; then
@@ -128,25 +135,25 @@ function remove_menu_k1c_2025() {
           run "remove_gcode_shell_command" "remove_menu_ui_k1c_2025"
         fi;;
 
-      6)
+      7)
         if [ ! -f "$GO2RTC_FILE" ]; then
           error_msg "Go2rtc is not installed!"
         else
           run "remove_go2rtc" "remove_menu_ui_k1c_2025"
         fi;;
-      7)
+      8)
         if [ ! -f "$USB_CAMERA_FILE" ] && [ ! -f "$USB_CAMERA_LEGACY_FILE" ]; then
           error_msg "USB Camera Support is not installed!"
         else
           run "remove_usb_camera" "remove_menu_ui_k1c_2025"
         fi;;
-      8)
+      9)
         if [ ! -f "$BUILTIN_CAMERA_FILE" ] && [ ! -f "$BUILTIN_CAMERA_LEGACY_FILE" ]; then
           error_msg "Built-in Camera Fix is not installed!"
         else
           run "remove_builtin_camera" "remove_menu_ui_k1c_2025"
         fi;;
-      9)
+      10)
         if [ ! -f "$CAMERA_SETTINGS_FILE" ]; then
           error_msg "Camera Settings Control is not installed!"
         else

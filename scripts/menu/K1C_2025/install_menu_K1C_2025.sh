@@ -11,16 +11,17 @@ function install_menu_ui_k1c_2025() {
   menu_option ' 1' 'Install' 'Moonraker and Nginx'
   menu_option ' 2' 'Install' 'Fluidd (port 4408)'
   menu_option ' 3' 'Install' 'Mainsail (port 4409)'
+  menu_option ' 4' 'Install' 'Reccon'
   hr
   subtitle '•UTILITIES:'
-  menu_option ' 4' 'Install' 'Entware'
-  menu_option ' 5' 'Install' 'Klipper Gcode Shell Command !!!UNTESTED!!!'
+  menu_option ' 5' 'Install' 'Entware'
+  menu_option ' 6' 'Install' 'Klipper Gcode Shell Command !!!UNTESTED!!!'
   hr
   subtitle '•CAMERA:'
-  menu_option ' 6' 'Install' 'Go2rtc'
-  menu_option ' 7' 'Install' 'USB Camera Support'
-  menu_option ' 8' 'Install' 'Built-in Camera Fix'
-  menu_option ' 9' 'Install' 'Camera Settings Control'
+  menu_option ' 7' 'Install' 'Go2rtc'
+  menu_option ' 8' 'Install' 'USB Camera Support'
+  menu_option ' 9' 'Install' 'Built-in Camera Fix'
+  menu_option '10' 'Install' 'Camera Settings Control'
 #  hr
 #  subtitle '•IMPROVEMENTS:'
 #  disabled_menu_option ' 6' 'Install' 'Klipper Adaptive Meshing & Purging'
@@ -96,24 +97,30 @@ function install_menu_k1c_2025() {
           run "install_mainsail" "install_menu_ui_k1c_2025"
         fi;;
       4)
+        if [ -f "$RECCON_FILE" ] && [ -f "$RECCON_SERVICE_FILE" ]; then
+          error_msg "Reccon is already installed!"
+        else
+          run "install_reccon" "install_menu_ui_k1c_2025"
+        fi;;
+      5)
         if [ -f "$ENTWARE_FILE" ]; then
           error_msg "Entware is already installed!"
         else
           run "install_entware" "install_menu_ui_k1c_2025"
         fi;;
-      5)
+      6)
         if [ -f "$KLIPPER_SHELL_FILE" ]; then
           error_msg "Klipper Gcode Shell Command is already installed!"
         else
           run "install_gcode_shell_command" "install_menu_ui_k1c_2025"
         fi;;
-      6)
+      7)
         if [ -f "$GO2RTC_FILE" ]; then
           error_msg "Go2rtc is already installed!"
         else
           run "install_go2rtc" "install_menu_ui_k1c_2025"
         fi;;
-      7)
+      8)
         if [ -f "$USB_CAMERA_FILE" ]; then
           error_msg "Camera USB Support is already installed!"
         elif [ ! -f "$ENTWARE_FILE" ]; then
@@ -125,7 +132,7 @@ function install_menu_k1c_2025() {
         else
           run "install_usb_camera" "install_menu_ui_k1c_2025"
         fi;;
-      8)
+      9)
         if [ -f "$BUILTIN_CAMERA_FILE" ]; then
           error_msg "Built-in Camera Fix is already installed!"
         elif [ ! -f "$ENTWARE_FILE" ]; then
@@ -135,7 +142,7 @@ function install_menu_k1c_2025() {
         else
           run "install_builtin_camera" "install_menu_ui_k1c_2025"
         fi;;
-      9)
+      10)
         if [ -f "$CAMERA_SETTINGS_FILE" ]; then
           error_msg "Camera Settings Control is already installed!"
         elif [ ! -f "$KLIPPER_SHELL_FILE" ]; then

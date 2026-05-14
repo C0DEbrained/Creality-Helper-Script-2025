@@ -20,6 +20,17 @@ function check_file_k1c_2025() {
   fi
 }
 
+function check_all_files_k1c_2025() {
+  local file_path
+  for file_path in "$@"; do
+    if [ ! -f "$file_path" ]; then
+      echo -e "${red}✗"
+      return
+    fi
+  done
+  echo -e "${green}✓"
+}
+
 function check_any_file_k1c_2025() {
   local file_path
   for file_path in "$@"; do
@@ -50,6 +61,7 @@ function info_menu_ui_k1c_2025() {
   info_line "$(check_folder_k1c_2025 "$MOONRAKER_FOLDER")" 'Moonraker & Nginx'
   info_line "$(check_folder_k1c_2025 "$FLUIDD_FOLDER")" 'Fluidd'
   info_line "$(check_folder_k1c_2025 "$MAINSAIL_FOLDER")" 'Mainsail'
+  info_line "$(check_all_files_k1c_2025 "$RECCON_FILE" "$RECCON_SERVICE_FILE")" 'Reccon'
   hr
   subtitle '•UTILITIES:'
   info_line "$(check_file_k1c_2025 "$ENTWARE_FILE")" 'Entware'
