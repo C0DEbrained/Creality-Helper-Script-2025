@@ -89,6 +89,11 @@ function set_paths() {
   # Klipper Gcode Shell Command #
   KLIPPER_SHELL_FILE="${KLIPPER_EXTRAS_FOLDER}/gcode_shell_command.py"
   KLIPPER_SHELL_URL="${HS_FILES}/gcode-shell-command/gcode_shell_command.py"
+
+  # Reccon #
+  RECCON_FILE="/usr/apps/overlay/sbin/reccon"
+  RECCON_URL="https://github.com/user-attachments/files/25517458/reccon.tar.gz"
+  RECCON_SERVICE_FILE="${INITD_FOLDER}/S39console"
   
   # Klipper Adaptive Meshing & Purging #
   KAMP_FOLDER="${HS_CONFIG_FOLDER}/KAMP"
