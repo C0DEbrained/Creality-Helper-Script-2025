@@ -13,6 +13,9 @@ PRINTER_LOGS_DIR=$PRINTER_DATA_DIR/logs
 PID_FILE=/var/run/moonraker.pid
 
 start() {
+        export PATH="/opt/bin:/opt/sbin:$PATH"
+        HOME=/root /opt/bin/git config --global --add safe.directory '*' >/dev/null 2>&1
+
         [ -d $PRINTER_DATA_DIR ] || mkdir -p $PRINTER_DATA_DIR
         [ -d $PRINTER_CONFIG_DIR ] || mkdir -p $PRINTER_CONFIG_DIR
         [ -d $PRINTER_LOGS_DIR ] || mkdir -p $PRINTER_LOGS_DIR
