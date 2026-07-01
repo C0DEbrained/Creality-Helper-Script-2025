@@ -53,6 +53,7 @@ function set_paths() {
   
   # Supervisor Lite #
   SUPERVISOR_FILE="$BIN_FOLDER/supervisorctl"
+  SUPERVISOR_OPT_FILE="/opt/bin/supervisorctl"
   SUPERVISOR_URL="${HS_FILES}/fixes/supervisorctl"
 
   # Host Controls Support #

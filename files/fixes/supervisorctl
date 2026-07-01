@@ -1,9 +1,22 @@
 #!/bin/sh
-# supervisorctl shim - by destinal 
-# this is a fake supervisorctl that provides just enough information for moonraker to think it's the real thing.
-# good enough to list the names of services in moonraker.conf, to say whether they're running or not (with false pids and times)
-# and to start and stop them by name, finding and calling the matching init scripts. 
-# installing: put this in in /usr/bin/supervisorctl and then in moonraker.conf in [machine] section, set  "provider: supervisord_cli"
+# supervisorctl shim - originally by destinal (C0DEbrained helper-script fork)
+# A fake supervisorctl: enough for Moonraker's [machine] provider:supervisord_cli
+# to list services, report RUNNING/STOPPED, and start/stop/restart them by name
+# via the matching CrealityOS init.d script -- no real supervisord/systemd needed.
+#
+# Patched for the CrealityOS K1C 2025 (Arlo, 2026-07-01). Two upstream bugs on
+# the 2025 fixed here:
+#   1. INITD_PATH detection. Upstream gates on
+#        [ "$(get_sn_mac.sh model || get_sn_mac.sh model_str)" = "K1C" ]
+#      but on the 2025 `get_sn_mac.sh model` prints nothing yet returns rc 0, so
+#      the `||` short-circuits and the model_str fallback ("K1C") never runs ->
+#      INITD_PATH stays /etc/init.d (empty on the 2025) -> zero services found.
+#      Replaced with content-based detection: pick whichever init.d dir actually
+#      holds the moonraker service script.
+#   2. Service-name discovery. CrealityOS names klipper CS55klipper_service
+#      (C-prefixed); upstream's `S*` / `S[0-9][0-9]name` globs never match it.
+#      Discovery now also matches a leading capital before the runlevel and
+#      ignores .bak/.bkp/.orig backups left in init.d.
 
 if [ -t 1 ]; then  # colorize only if we're on a terminal
   GREEN='\033[32m'
@@ -11,21 +24,26 @@ if [ -t 1 ]; then  # colorize only if we're on a terminal
   ENDCOLOR='\033[0m'
 fi
 
+# --- locate the init.d directory that actually holds the service scripts ---
 INITD_PATH="/etc/init.d"
-if [ "$(get_sn_mac.sh "model" || get_sn_mac.sh "model_str")" = "K1C" ]; then
-  INITD_PATH="/usr/apps/etc/init.d"
-fi
+for _p in /usr/apps/etc/init.d /etc/appetc/init.d /etc/init.d; do
+  if ls "$_p"/*moonraker_service >/dev/null 2>&1; then
+    INITD_PATH="$_p"
+    break
+  fi
+done
+
+# strip dir, leading runlevel prefix (S56, CS55, ...) and _service suffix
+_svc_name() {
+  sed 's#.*/##; s/^[A-Za-z][A-Za-z]*[0-9][0-9]*//; s/_service$//'
+}
 
 get_services() {
-  moonraker_pid="$(cat /var/run/moonraker.pid)"
-  # if moonraker is running, get its config directory from its command line
+  moonraker_pid="$(cat /var/run/moonraker.pid 2>/dev/null)"
+  # if moonraker is running, confirm via its PID file before reporting
   if [ -f /var/run/moonraker.pid ] && [ -d /proc/"$moonraker_pid" ] ; then
-    cmdline="$(tr '\0' '\n' < /proc/"$moonraker_pid"/cmdline)"
-    moonraker_dir="$(echo $cmdline | awk -F'-d ' '{print $2}' | awk '{print $1}')"
-    moonraker_conf="$moonraker_dir/config/moonraker.conf"
-    # services="klipper moonraker $(awk '/managed_services:/ {print $2}' $moonraker_conf | sed 's/://')"
-    # services=`(printf 'klipper\nmoonraker\n'; awk '/managed_services:/ {print $2}' $moonraker_conf | sed 's/://') | sort|uniq`
-    services=$(ls -1 ${INITD_PATH}/S*|sed 's/.*\/S..//;s/_service$//')
+    services=$(ls -1 ${INITD_PATH}/S[0-9][0-9]* ${INITD_PATH}/[A-Z]S[0-9][0-9]* 2>/dev/null \
+               | grep -vE '\.(bak|bkp|orig)' | _svc_name | sort -u)
     echo $services
   else
     echo "Error: Invalid or missing PID file /var/run/moonraker.pid" >&2
@@ -33,24 +51,21 @@ get_services() {
   fi
 }
 
-get_pid_file() {
-  service="$1"
-  [ $service == "klipper" ] && service="klippy"
-  pid_file="/var/run/$service.pid"
-  echo $pid_file
-}
-
 is_running() {
   service="$1"
-  pid_file="$(get_pid_file "$service")"
+  daemon="$service"
+  [ "$service" == "klipper" ] && daemon="klippy"
 
-  # Check for PID file
-  if [ -f "$pid_file" ] && [ -d "/proc/$(cat $pid_file)" ]; then
+  # Check known PID-file locations. CrealityOS writes klipper's pid to
+  # /home/creality/run/klippy.pid (not /var/run); moonraker/nginx use /var/run.
+  for pid_file in "/var/run/$daemon.pid" "/home/creality/run/$daemon.pid"; do
+    if [ -f "$pid_file" ] && [ -d "/proc/$(cat "$pid_file" 2>/dev/null)" ]; then
       return 0  # Running
-  fi
+    fi
+  done
 
-  # Fallback to using pidof in case the service doesn't use pid files
-  if pidof "$service" &>/dev/null; then
+  # Fallback to pidof in case the service doesn't use a pid file
+  if pidof "$daemon" &>/dev/null; then
       return 0  # Running
   fi
   return 1  # Not running
@@ -68,11 +83,17 @@ print_usage() {
   echo "supervisorctl shim - provide minimal support for moonraker so CrealityOS moonraker can start/stop without systemd"
   echo "Usage: $0 [command] <service>"
   echo "commands include status stop start restart"
-} 
+}
 
 get_script_path() {
   service="$1"
-  script_path="$(ls -1 ${INITD_PATH}/S[0-9][0-9]${service}_service ${INITD_PATH}/S[0-9][0-9]${service}* 2>/dev/null|head -1)"
+  script_path="$(ls -1 ${INITD_PATH}/S[0-9][0-9]${service}_service \
+                       ${INITD_PATH}/[A-Z]S[0-9][0-9]${service}_service \
+                       ${INITD_PATH}/S[0-9][0-9]${service} \
+                       ${INITD_PATH}/[A-Z]S[0-9][0-9]${service} \
+                       ${INITD_PATH}/S[0-9][0-9]${service}* \
+                       ${INITD_PATH}/[A-Z]S[0-9][0-9]${service}* 2>/dev/null \
+                  | grep -vE '\.(bak|bkp|orig)' | head -1)"
   echo "$script_path"
 }
 

@@ -2,6 +2,32 @@
 
 set -e
 
+function install_helper_shims(){
+  # Install the supervisorctl/systemctl/sudo shims as real files (not symlinks):
+  # a symlink rooted at the helper-script folder dangles if that folder is later
+  # renamed, leaving a broken entry on PATH that Moonraker hits as FileNotFound.
+  echo -e "Info: Installing Supervisor Lite..."
+  cp -f "$SUPERVISOR_URL" "$SUPERVISOR_FILE"
+  chmod 755 "$SUPERVISOR_FILE"
+  # K1C 2025: BIN_FOLDER (/usr/apps/usr/bin) is only on Moonraker's PATH at boot.
+  # The launcher always prepends /opt/bin (Entware), so a copy there is found on
+  # manual restarts too. Guarded on Entware being mounted; no-op on other models.
+  if [ "$model" = "K1_2025" ] && [ -d /opt/bin ]; then
+    cp -f "$SUPERVISOR_URL" "$SUPERVISOR_OPT_FILE"
+    chmod 755 "$SUPERVISOR_OPT_FILE"
+  fi
+  echo -e "Info: Installing Host Controls Support..."
+  cp -f "$SUDO_URL" "$SUDO_FILE"
+  chmod 755 "$SUDO_FILE"
+  cp -f "$SYSTEMCTL_URL" "$SYSTEMCTL_FILE"
+  chmod 755 "$SYSTEMCTL_FILE"
+}
+
+function remove_helper_shims(){
+  rm -f "$SUPERVISOR_FILE" "$SUDO_FILE" "$SYSTEMCTL_FILE"
+  [ "$model" = "K1_2025" ] && rm -f "$SUPERVISOR_OPT_FILE"
+}
+
 function moonraker_nginx_message(){
   top_line
   title 'Moonraker and Nginx' "${yellow}"
@@ -82,14 +108,7 @@ function install_moonraker_nginx(){
         cd "$MOONRAKER_FOLDER"/moonraker
         chown -R root:root .
         git stash; git checkout master; git pull
-        echo -e "Info: Installing Supervisor Lite..."
-        chmod 755 "$SUPERVISOR_URL"
-        ln -sf "$SUPERVISOR_URL" "$SUPERVISOR_FILE"
-        echo -e "Info: Installing Host Controls Support..."
-        chmod 755 "$SUDO_URL"
-        chmod 755 "$SYSTEMCTL_URL"
-        ln -sf "$SUDO_URL" "$SUDO_FILE"
-        ln -sf "$SYSTEMCTL_URL" "$SYSTEMCTL_FILE"
+        install_helper_shims
         echo -e "Info: Starting Nginx service..."
         start_nginx
         echo -e "Info: Starting Moonraker service..."
@@ -126,9 +145,7 @@ function remove_moonraker_nginx(){
         rm -rf "$PRINTER_DATA_FOLDER"/comms
         rm -rf "$NGINX_FOLDER"
         rm -rf "$MOONRAKER_FOLDER"
-        rm -f "$SUPERVISOR_FILE"
-        rm -f "$SUDO_FILE"
-        rm -f "$SYSTEMCTL_FILE"
+        remove_helper_shims
         ok_msg "Moonraker and Nginx have been removed successfully!"
         return;;
       N|n)
@@ -182,14 +199,7 @@ function install_moonraker_3v3(){
         echo -e "Info: Applying changes from official repo..."
         cd "$MOONRAKER_FOLDER"/moonraker
         git stash; git checkout master; git pull
-        echo -e "Info: Installing Supervisor Lite..."
-        chmod 755 "$SUPERVISOR_URL"
-        ln -sf "$SUPERVISOR_URL" "$SUPERVISOR_FILE"
-        echo -e "Info: Installing Host Controls Support..."
-        chmod 755 "$SUDO_URL"
-        chmod 755 "$SYSTEMCTL_URL"
-        ln -sf "$SUDO_URL" "$SUDO_FILE"
-        ln -sf "$SYSTEMCTL_URL" "$SYSTEMCTL_FILE"
+        install_helper_shims
         echo -e "Info: Starting Nginx service..."
         start_nginx
         echo -e "Info: Starting Moonraker service..."
@@ -223,9 +233,7 @@ function remove_moonraker_3v3(){
         rm -f "$KLIPPER_CONFIG_FOLDER"/.moonraker.conf.bkp
         rm -f "$PRINTER_DATA_FOLDER"/.moonraker.uuid
         rm -f "$PRINTER_DATA_FOLDER"/moonraker.asvc
-        rm -f "$SUPERVISOR_FILE"
-        rm -f "$SUDO_FILE"
-        rm -f "$SYSTEMCTL_FILE"
+        remove_helper_shims
         if [ -f /etc/nginx/nginx.conf.backup ]; then
           echo -e "Info: Restoring stock Nginx configuration..."
           rm -f /etc/nginx/nginx.conf
