@@ -20,8 +20,9 @@ get_camera_resolution() {
 case "$1" in
   start)
     echo "Starting USB Camera..."
-    if [ ! -x /opt/bin/mjpg_streamer ]; then
-      echo "Error: mjpg_streamer not found in /opt/bin!"
+    # The built-in mjpg streamer is found in /usr/bin, not /opt/bin.
+    if [ ! -x /usr/bin/mjpg_streamer ]; then
+      echo "Error: mjpg_streamer not found in /usr/bin!"
       exit 1
     fi
     PORT=8082
@@ -34,7 +35,7 @@ case "$1" in
     for V4L_DEV in $V4L_DEVS; do
       RESOLUTION=$(get_camera_resolution "$V4L_DEV")
       echo "Starting $V4L_DEV at ${RESOLUTION} on port $PORT..."
-      /opt/bin/mjpg_streamer -b -i "/opt/lib/mjpg-streamer/input_uvc.so -d $V4L_DEV -r $RESOLUTION -f 15" -o "/opt/lib/mjpg-streamer/output_http.so -p $PORT"
+      /usr/bin/mjpg_streamer -b -i "/usr/lib/mjpg-streamer/input_uvc.so -d $V4L_DEV -f 15" -o "/usr/lib/mjpg-streamer/output_http.so -p $PORT"
       PORT=`expr $PORT + 1`
     done
     ;;
