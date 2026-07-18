@@ -23,7 +23,7 @@ function k1_2025_write_entware_init_script() {
     echo '# Creality Helper Script — persistent Entware /opt (must run before S50*).'
     echo "ENTWARE_IMG=\"$ENTWARE_OPT_MOUNT\""
     echo 'mkdir -p /opt'
-    echo 'if ! grep -qF "entware_opt_mount.img" /proc/mounts 2>/dev/null; then'
+    echo 'if ! grep -q " /opt " /proc/mounts; then'
     echo '  mount -o loop "$ENTWARE_IMG" /opt || exit 1'
     echo 'fi'
     echo 'if [ -f /opt/etc/init.d/rc.unslung ]; then'
@@ -52,7 +52,7 @@ function k1_2025_opt_mount(){
   k1_2025_write_entware_init_script
 
   echo "Info: Mounting Entware /opt for this session..."
-  if ! grep -qF "entware_opt_mount.img" /proc/mounts 2>/dev/null; then
+  if ! grep -q " /opt " /proc/mounts; then
     mount -o loop "$ENTWARE_OPT_MOUNT" /opt
   fi
 }
@@ -114,7 +114,7 @@ function remove_entware(){
         if [ "$model" = "K1_2025" ]; then
           echo -e "Info: Removing Entware boot scripts (K1 2025)..."
           rm -f "$INITD_FOLDER/S48entware" "$INITD_FOLDER/S56entware"
-          if grep -qF "entware_opt_mount.img" /proc/mounts 2>/dev/null; then
+          if grep -q " /opt " /proc/mounts; then
             umount /opt 2>/dev/null || true
           fi
         else
