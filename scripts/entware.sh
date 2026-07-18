@@ -78,7 +78,8 @@ function install_entware(){
           k1_2025_opt_mount
           $HS_FILES/fixes/curl -L "https://bin.entware.net/mipselsf-k3.4/installer/generic.sh" | sh
           export PATH=/opt/bin:/opt/sbin:$PATH
-          sed -i '1s|.*|src/gz entware http://bin.tranducanh.com/mipselsf-k3.4|' /opt/etc/opkg.conf
+          # I'm not sure why we were using Tranducanh.com. It got wiped and it broke everything. It makes more sense to just use the official one.
+          sed -i '1s|.*|src/gz entware http://bin.entware.net/mipselsf-k3.4|' /opt/etc/opkg.conf
           opkg update
 
           opkg install openssh-sftp-server

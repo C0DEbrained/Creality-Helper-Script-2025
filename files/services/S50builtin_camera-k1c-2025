@@ -4,8 +4,9 @@
 case "$1" in
   start)
     echo "Starting Built-in Camera..."
-    if [ ! -x /opt/bin/mjpg_streamer ]; then
-      echo "Error: mjpg_streamer not found in /opt/bin!"
+    # The built-in mjpg streamer is found in /usr/bin, not /opt/bin.
+    if [ ! -x /usr/bin/mjpg_streamer ]; then
+      echo "Error: mjpg_streamer not found in /usr/bin!"
       exit 1
     fi
     if [ ! -e /dev/video0 ]; then
@@ -16,9 +17,10 @@ case "$1" in
       /opt/etc/init.d/S96mjpg-streamer stop 2>/dev/null || true
       mv /opt/etc/init.d/S96mjpg-streamer /opt/etc/init.d/disabled.S96mjpg-streamer
     fi
+    # The -r flag seems to not be supported by the built-in mjpg streamer. It seems redundant anyway, and therefore I removed it.
     PIDS=$(ps | grep '[m]jpg_streamer' | grep -E 'input_uvc.so.*-d /dev/video0|output_http.so -p 3000|output_http.so -p 8080' | awk '{print $1}')
     [ -n "$PIDS" ] && kill $PIDS
-    /opt/bin/mjpg_streamer -b -i "/opt/lib/mjpg-streamer/input_uvc.so -d /dev/video0 -r 1280x720 -f 15" -o "/opt/lib/mjpg-streamer/output_http.so -p 8080"
+    /usr/bin/mjpg_streamer -b -i "/usr/lib/mjpg-streamer/input_uvc.so -d /dev/video0 -f 15" -o "/usr/lib/mjpg-streamer/output_http.so -p 8080"
     ;;
   stop)
     echo "Stopping Built-in Camera..."
