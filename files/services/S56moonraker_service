@@ -13,6 +13,14 @@ PRINTER_LOGS_DIR=$PRINTER_DATA_DIR/logs
 PID_FILE=/var/run/moonraker.pid
 
 start() {
+        # Klipper runs as the unprivileged 'creality' user on the K1 2025 while Moonraker
+        # runs as root, so g-code uploads are only usable if they land world-readable.
+        # Without this, Moonraker inherits the umask of whatever started it: boot gives it
+        # 022, but a restart from an SSH root shell (which is what the Helper Script's own
+        # Restart Moonraker action is) gives it the CrealityOS root default of 077. Uploads
+        # then land mode 600 and print start fails with XD5027 "Unable to open file".
+        umask 022
+
         export PATH="/opt/bin:/opt/sbin:$PATH"
         HOME=/root /opt/bin/git config --global --add safe.directory '*' >/dev/null 2>&1
 
