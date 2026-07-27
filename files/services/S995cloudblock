@@ -11,13 +11,24 @@
 # /etc/hosts reverts to stock at every start.
 #
 # This is a blocklist, not a firewall. The OUTPUT policy is left untouched and
-# nothing else is filtered, so the cloud relay options the helper installs
-# (OctoEverywhere, Obico, GuppyFLO, SimplyPrint, OctoApp, Mobileraker) keep
+# nothing else is filtered, so the cloud relay options the helper installs keep
 # working.
+#
+# Everything written here is owned and delimited: the hosts entries live between
+# two markers, the firewall rules live in their own chain. Nothing is matched by
+# content, so uninstall cannot remove a hosts line or a firewall rule that
+# something else created.
+
+# A root SSH shell on CrealityOS inherits umask 077 while boot uses 022, so pin
+# it here, same reason S56moonraker_service does.
+umask 022
 
 HOSTS="/etc/hosts"
-MARKER="# Creality Helper Script - Block Creality Cloud Telemetry"
+BEGIN_MARKER="# BEGIN Creality Helper Script - Block Creality Cloud Telemetry"
+END_MARKER="# END Creality Helper Script - Block Creality Cloud Telemetry"
+CHAIN="CREALITY_CLOUDBLOCK"
 MQTT_PORTS="1883 8883"
+LAN_WAIT_SECONDS=5
 
 # Hosts found in the stock vectorp and onyxp binaries, in alchemistp's
 # config.json, and on the wire during a print.
@@ -40,145 +51,202 @@ devdata.cxswyjy.com
 www.creality.com
 "
 
+IPT=""
+IPTABLES_STATE=""
+
 # The K1 and Ender-3 V3 series ship without an iptables binary even though the
-# kernel module is loaded, so every rule below is optional. The hosts blocklist
-# is applied either way.
-have_iptables() {
-  command -v iptables > /dev/null 2>&1 && iptables -L OUTPUT -n > /dev/null 2>&1
+# kernel module is loaded, which is a normal state this script tolerates. A
+# binary that is present but unusable is a real error and must not be reported
+# as "this model has no iptables".
+probe_iptables() {
+  [ -n "$IPTABLES_STATE" ] && return 0
+  if ! command -v iptables > /dev/null 2>&1; then
+    IPTABLES_STATE="absent"
+    return 0
+  fi
+  # -w serialises against anything else writing the same table. iptables 1.8
+  # knows the flag, older builds do not, so fall back rather than fail every
+  # call.
+  if iptables -w 5 -L OUTPUT -n > /dev/null 2>&1; then
+    IPT="iptables -w 5"
+    IPTABLES_STATE="ok"
+  elif iptables -L OUTPUT -n > /dev/null 2>&1; then
+    IPT="iptables"
+    IPTABLES_STATE="ok"
+  else
+    IPTABLES_STATE="error"
+  fi
+}
+
+ipt() {
+  $IPT "$@"
+}
+
+# Tested with -S rather than -C so this works on iptables builds predating -C.
+chain_is_linked() {
+  ipt -S OUTPUT 2>/dev/null | grep -q -- "-j $CHAIN"
 }
 
 # Directly attached subnets, so a local MQTT broker stays reachable. Never
-# guess: no route, no LAN exemption.
+# guess: no route, no LAN exemption. Matched on "src" plus a CIDR in the first
+# field rather than on "proto kernel", which not every ip implementation prints.
 lan_networks() {
-  ip route 2>/dev/null | awk '/proto kernel/ && /src/ { print $1 }'
+  ip route 2>/dev/null | awk '/[[:space:]]src[[:space:]]/ && $1 ~ /\// { print $1 }'
 }
 
-# ACCEPT rules are inserted at the top so they always precede the DROP rules,
-# even if the network came up after a first pass added the drops alone.
-accept_rule() {
-  iptables -C "$@" 2>/dev/null || iptables -I "$@"
-}
-
-drop_rule() {
-  iptables -C "$@" 2>/dev/null || iptables -A "$@"
-}
-
-delete_rule() {
-  while iptables -C "$@" 2>/dev/null; do
-    iptables -D "$@" 2>/dev/null || break
-  done
-}
-
-# Appending to a file whose last line has no newline would corrupt that line.
-hosts_end_with_newline() {
-  [ -s "$HOSTS" ] || return 0
-  [ -z "$(tail -c 1 "$HOSTS")" ] || printf '\n' >> "$HOSTS"
-}
-
-# Only ever matches the lines this script writes, so an entry a user added by
-# hand for the same host is left alone on removal.
-host_pattern() {
-  echo "^0\.0\.0\.0[[:space:]][[:space:]]*$(echo "$1" | sed 's/\./\\./g')\$"
-}
-
-hosts_block() {
-  local host
-  hosts_end_with_newline
-  grep -q "^${MARKER}\$" "$HOSTS" 2>/dev/null || printf '%s\n' "$MARKER" >> "$HOSTS"
-  for host in $BLACKHOLE; do
-    grep -q "$(host_pattern "$host")" "$HOSTS" 2>/dev/null || printf '0.0.0.0 %s\n' "$host" >> "$HOSTS"
-  done
-}
-
-hosts_unblock() {
-  local host
-  [ -f "$HOSTS" ] || return 0
-  for host in $BLACKHOLE; do
-    sed -i "/$(host_pattern "$host")/d" "$HOSTS"
-  done
-  sed -i "/^${MARKER}\$/d" "$HOSTS"
-}
-
-# At boot this can run before DHCP has finished, which would add the drops with
-# no LAN exemption and leave a local MQTT broker unreachable until the next
+# At boot this can run before DHCP has finished, which would build the chain
+# with no LAN exemption and leave a local MQTT broker unreachable until the next
 # boot. Wait briefly, but never hold up a printer that has no network at all.
 wait_for_lan() {
   local waited=0
-  while [ -z "$(lan_networks)" ] && [ "$waited" -lt 5 ]; do
+  while [ -z "$(lan_networks)" ] && [ "$waited" -lt "$LAN_WAIT_SECONDS" ]; do
     sleep 1
     waited=$((waited + 1))
   done
 }
 
+# Everything outside the managed region, verbatim. A begin marker with no end
+# marker deletes to EOF, which is the right recovery from an interrupted write.
+hosts_without_block() {
+  [ -f "$HOSTS" ] || return 0
+  sed "/^${BEGIN_MARKER}\$/,/^${END_MARKER}\$/d" "$HOSTS"
+}
+
+# Rewritten in a single pass rather than appended line by line, so there is one
+# window in which a concurrent writer could be clobbered instead of seventeen.
+# Copied back with cat rather than mv to keep the original inode, mode and owner
+# and to leave a symlinked /etc/hosts pointing where it did before.
+hosts_write() {
+  local host
+  local last
+  local tmp="${HOSTS}.cloudblock.$$"
+  hosts_without_block > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  if [ "$1" = "block" ]; then
+    # sed preserves a missing final newline, so without this the begin marker
+    # would be appended onto the end of the last existing line. That corrupts
+    # the line and, worse, hides the marker from the range delete on uninstall,
+    # stranding the whole block. Fails closed: if tail -c is unavailable the
+    # newline goes in anyway, because a blank line is harmless and a joined line
+    # is not.
+    if [ -s "$tmp" ]; then
+      last=$(tail -c 1 "$tmp" 2>/dev/null) || last="x"
+      [ -z "$last" ] || printf '\n' >> "$tmp"
+    fi
+    {
+      printf '%s\n' "$BEGIN_MARKER"
+      for host in $BLACKHOLE; do
+        printf '0.0.0.0 %s\n' "$host"
+      done
+      printf '%s\n' "$END_MARKER"
+    } >> "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  cat "$tmp" > "$HOSTS" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
+# Rebuilt from scratch on every start, so a changed LAN, a hand-edited entry or
+# a host list that grew between versions all self-heal instead of accumulating.
 mqtt_block() {
   local lan
   local port
-  have_iptables || return 0
+  local rc=0
+
+  probe_iptables
+  case "$IPTABLES_STATE" in
+    absent)
+      return 0
+      ;;
+    error)
+      echo "Warning: iptables is present but unusable, MQTT port rules skipped." >&2
+      return 1
+      ;;
+  esac
+
   wait_for_lan
+
+  ipt -N "$CHAIN" 2>/dev/null
+  ipt -F "$CHAIN" || rc=1
+
   for port in $MQTT_PORTS; do
-    # 127.0.0.1 is not in the LAN CIDR, and a blackholed host resolves to
-    # 0.0.0.0, which the kernel routes to loopback. Without this the drop below
-    # silently swallows that traffic instead of letting it fail fast with a
-    # RST. Every rule is scoped to an MQTT port so that removing it can never
-    # take out a broader rule another tool owns.
-    accept_rule OUTPUT -o lo -p tcp --dport "$port" -j ACCEPT
+    # A blackholed host resolves to 0.0.0.0, which the kernel routes to
+    # loopback. Without this the drop below swallows that silently instead of
+    # letting it fail fast with a RST.
+    ipt -A "$CHAIN" -o lo -p tcp --dport "$port" -j ACCEPT || rc=1
     for lan in $(lan_networks); do
-      accept_rule OUTPUT -p tcp -d "$lan" --dport "$port" -j ACCEPT
+      ipt -A "$CHAIN" -p tcp -d "$lan" --dport "$port" -j ACCEPT || rc=1
     done
     # vectorp carries hardcoded broker IPs (47.114.48.45:1883 and
     # 120.55.101.240:1883) that bypass DNS entirely, so the port rules are what
     # actually stops it.
-    drop_rule OUTPUT -p tcp --dport "$port" -j DROP
+    ipt -A "$CHAIN" -p tcp --dport "$port" -j DROP || rc=1
   done
+
+  # Inserted, not appended: an OUTPUT chain that already carries a broad ACCEPT
+  # would otherwise match first and the drops would never be reached.
+  chain_is_linked || ipt -I OUTPUT -j "$CHAIN" || rc=1
+
+  [ "$rc" -eq 0 ] || echo "Warning: some MQTT port rules could not be applied." >&2
+  return "$rc"
 }
 
 mqtt_unblock() {
-  local lan
-  local port
-  have_iptables || return 0
-  for port in $MQTT_PORTS; do
-    delete_rule OUTPUT -p tcp --dport "$port" -j DROP
-    for lan in $(lan_networks); do
-      delete_rule OUTPUT -p tcp -d "$lan" --dport "$port" -j ACCEPT
-    done
-    delete_rule OUTPUT -o lo -p tcp --dport "$port" -j ACCEPT
+  probe_iptables
+  [ "$IPTABLES_STATE" = "ok" ] || return 0
+
+  while chain_is_linked; do
+    ipt -D OUTPUT -j "$CHAIN" 2>/dev/null || break
   done
+  ipt -F "$CHAIN" 2>/dev/null
+  ipt -X "$CHAIN" 2>/dev/null
+  return 0
 }
+
+rc=0
 
 case "$1" in
   start)
     echo "Blocking Creality cloud telemetry..."
-    hosts_block
-    mqtt_block
+    hosts_write block || { echo "Error: could not update $HOSTS." >&2; rc=1; }
+    mqtt_block || rc=1
     ;;
   stop)
     echo "Unblocking Creality cloud telemetry..."
     mqtt_unblock
-    hosts_unblock
+    hosts_write unblock || { echo "Error: could not restore $HOSTS." >&2; rc=1; }
     ;;
   restart|force-reload)
     "$0" stop
     "$0" start
+    rc=$?
     ;;
   status)
-    blocked=0
-    total=0
-    for host in $BLACKHOLE; do
-      total=$((total + 1))
-      if grep -q "$(host_pattern "$host")" "$HOSTS" 2>/dev/null; then
-        blocked=$((blocked + 1))
-      fi
-    done
-    echo "Hosts blocklist: $blocked of $total entries present"
-    if have_iptables; then
-      iptables -L OUTPUT -v -n
+    if grep -q "^${BEGIN_MARKER}\$" "$HOSTS" 2>/dev/null; then
+      echo "Hosts blocklist: active ($(sed -n "/^${BEGIN_MARKER}\$/,/^${END_MARKER}\$/p" "$HOSTS" | grep -c '^0\.0\.0\.0') entries)"
     else
-      echo "MQTT port rules: skipped (iptables not available)"
+      echo "Hosts blocklist: inactive"
     fi
+    probe_iptables
+    case "$IPTABLES_STATE" in
+      absent)
+        echo "MQTT port rules: skipped (no iptables on this model)"
+        ;;
+      error)
+        echo "MQTT port rules: iptables is present but unusable"
+        rc=1
+        ;;
+      ok)
+        if chain_is_linked; then
+          ipt -L "$CHAIN" -v -n
+        else
+          echo "MQTT port rules: chain $CHAIN is not linked into OUTPUT"
+        fi
+        ;;
+    esac
     ;;
   *)
     echo "Usage: $0 {start|stop|restart|force-reload|status}"
     exit 1
+    ;;
 esac
 
-exit 0
+exit "$rc"

@@ -29,12 +29,20 @@ function install_block_creality_cloud(){
         cp "$CLOUD_BLOCK_SERVICE_URL" "$CLOUD_BLOCK_SERVICE_FILE"
         chmod 755 "$CLOUD_BLOCK_SERVICE_FILE"
         echo -e "Info: Applying blocklist..."
+        local start_rc
         set +e
         "$CLOUD_BLOCK_SERVICE_FILE" start
+        start_rc=$?
         set -e
+        if [ "$start_rc" -ne 0 ]; then
+          error_msg "Block Creality Cloud Telemetry was installed but did not apply cleanly!"
+          echo -e " ${darkred}Run '$CLOUD_BLOCK_SERVICE_FILE status' to see what is missing.${white}"
+          echo
+          return
+        fi
         ok_msg "Block Creality Cloud Telemetry has been installed successfully!"
         if ! command -v iptables > /dev/null 2>&1; then
-          echo -e " ${darkred}Note: iptables is not available on this printer, MQTT port rules were skipped.${white}"
+          echo -e " ${darkred}Note: this printer has no iptables, so the MQTT port rules were skipped.${white}"
           echo -e " ${darkred}The hosts blocklist is still active.${white}"
           echo
         fi
