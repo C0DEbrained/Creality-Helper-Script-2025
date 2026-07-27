@@ -1,0 +1,184 @@
+#!/bin/sh
+#
+# Block Creality Cloud Telemetry
+# Credit: C0DEbrained
+#
+# Blackholes the hosts the stock Creality daemons use for telemetry, remote
+# access and OTA checks, and drops outbound MQTT to anything off the LAN.
+#
+# Re-applied at every boot on purpose: iptables rules never survive a reboot on
+# any model, and on the K1 2025 the rootfs is a volatile RAM filesystem, so
+# /etc/hosts reverts to stock at every start.
+#
+# This is a blocklist, not a firewall. The OUTPUT policy is left untouched and
+# nothing else is filtered, so the cloud relay options the helper installs
+# (OctoEverywhere, Obico, GuppyFLO, SimplyPrint, OctoApp, Mobileraker) keep
+# working.
+
+HOSTS="/etc/hosts"
+MARKER="# Creality Helper Script - Block Creality Cloud Telemetry"
+MQTT_PORTS="1883 8883"
+
+# Hosts found in the stock vectorp and onyxp binaries, in alchemistp's
+# config.json, and on the wire during a print.
+BLACKHOLE="
+api.crealitycloud.com
+mqtt.crealitycloud.com
+cxsw-cdn.crealitycloud.com
+model-cdn.crealitycloud.com
+admin-pre.crealitycloud.com
+pre-tb-iot.crealitycloud.com
+www.crealitycloud.com
+api.crealitycloud.cn
+mqtt.crealitycloud.cn
+admin-pre.crealitycloud.cn
+api-dev.crealitycloud.cn
+www.crealitycloud.cn
+c-smart.cxswyjy.com
+c-smart-cn-local.cxswyjy.com
+devdata.cxswyjy.com
+www.creality.com
+"
+
+# The K1 and Ender-3 V3 series ship without an iptables binary even though the
+# kernel module is loaded, so every rule below is optional. The hosts blocklist
+# is applied either way.
+have_iptables() {
+  command -v iptables > /dev/null 2>&1 && iptables -L OUTPUT -n > /dev/null 2>&1
+}
+
+# Directly attached subnets, so a local MQTT broker stays reachable. Never
+# guess: no route, no LAN exemption.
+lan_networks() {
+  ip route 2>/dev/null | awk '/proto kernel/ && /src/ { print $1 }'
+}
+
+# ACCEPT rules are inserted at the top so they always precede the DROP rules,
+# even if the network came up after a first pass added the drops alone.
+accept_rule() {
+  iptables -C "$@" 2>/dev/null || iptables -I "$@"
+}
+
+drop_rule() {
+  iptables -C "$@" 2>/dev/null || iptables -A "$@"
+}
+
+delete_rule() {
+  while iptables -C "$@" 2>/dev/null; do
+    iptables -D "$@" 2>/dev/null || break
+  done
+}
+
+# Appending to a file whose last line has no newline would corrupt that line.
+hosts_end_with_newline() {
+  [ -s "$HOSTS" ] || return 0
+  [ -z "$(tail -c 1 "$HOSTS")" ] || printf '\n' >> "$HOSTS"
+}
+
+# Only ever matches the lines this script writes, so an entry a user added by
+# hand for the same host is left alone on removal.
+host_pattern() {
+  echo "^0\.0\.0\.0[[:space:]][[:space:]]*$(echo "$1" | sed 's/\./\\./g')\$"
+}
+
+hosts_block() {
+  local host
+  hosts_end_with_newline
+  grep -q "^${MARKER}\$" "$HOSTS" 2>/dev/null || printf '%s\n' "$MARKER" >> "$HOSTS"
+  for host in $BLACKHOLE; do
+    grep -q "$(host_pattern "$host")" "$HOSTS" 2>/dev/null || printf '0.0.0.0 %s\n' "$host" >> "$HOSTS"
+  done
+}
+
+hosts_unblock() {
+  local host
+  [ -f "$HOSTS" ] || return 0
+  for host in $BLACKHOLE; do
+    sed -i "/$(host_pattern "$host")/d" "$HOSTS"
+  done
+  sed -i "/^${MARKER}\$/d" "$HOSTS"
+}
+
+# At boot this can run before DHCP has finished, which would add the drops with
+# no LAN exemption and leave a local MQTT broker unreachable until the next
+# boot. Wait briefly, but never hold up a printer that has no network at all.
+wait_for_lan() {
+  local waited=0
+  while [ -z "$(lan_networks)" ] && [ "$waited" -lt 5 ]; do
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+mqtt_block() {
+  local lan
+  local port
+  have_iptables || return 0
+  wait_for_lan
+  for port in $MQTT_PORTS; do
+    # 127.0.0.1 is not in the LAN CIDR, and a blackholed host resolves to
+    # 0.0.0.0, which the kernel routes to loopback. Without this the drop below
+    # silently swallows that traffic instead of letting it fail fast with a
+    # RST. Every rule is scoped to an MQTT port so that removing it can never
+    # take out a broader rule another tool owns.
+    accept_rule OUTPUT -o lo -p tcp --dport "$port" -j ACCEPT
+    for lan in $(lan_networks); do
+      accept_rule OUTPUT -p tcp -d "$lan" --dport "$port" -j ACCEPT
+    done
+    # vectorp carries hardcoded broker IPs (47.114.48.45:1883 and
+    # 120.55.101.240:1883) that bypass DNS entirely, so the port rules are what
+    # actually stops it.
+    drop_rule OUTPUT -p tcp --dport "$port" -j DROP
+  done
+}
+
+mqtt_unblock() {
+  local lan
+  local port
+  have_iptables || return 0
+  for port in $MQTT_PORTS; do
+    delete_rule OUTPUT -p tcp --dport "$port" -j DROP
+    for lan in $(lan_networks); do
+      delete_rule OUTPUT -p tcp -d "$lan" --dport "$port" -j ACCEPT
+    done
+    delete_rule OUTPUT -o lo -p tcp --dport "$port" -j ACCEPT
+  done
+}
+
+case "$1" in
+  start)
+    echo "Blocking Creality cloud telemetry..."
+    hosts_block
+    mqtt_block
+    ;;
+  stop)
+    echo "Unblocking Creality cloud telemetry..."
+    mqtt_unblock
+    hosts_unblock
+    ;;
+  restart|force-reload)
+    "$0" stop
+    "$0" start
+    ;;
+  status)
+    blocked=0
+    total=0
+    for host in $BLACKHOLE; do
+      total=$((total + 1))
+      if grep -q "$(host_pattern "$host")" "$HOSTS" 2>/dev/null; then
+        blocked=$((blocked + 1))
+      fi
+    done
+    echo "Hosts blocklist: $blocked of $total entries present"
+    if have_iptables; then
+      iptables -L OUTPUT -v -n
+    else
+      echo "MQTT port rules: skipped (iptables not available)"
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}"
+    exit 1
+esac
+
+exit 0

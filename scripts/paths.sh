@@ -222,6 +222,10 @@ function set_paths() {
   GO2RTC_CONFIG_FILE_URL="${HS_FILES}/go2rtc/go2rtc.yaml"
   GO2RTC_SERVICE_URL="${HS_FILES}/services/S50go2rtc"
   GO2RTC_SERVICE_FILE="${INITD_FOLDER}/S50go2rtc"
+
+  # Block Creality Cloud Telemetry #
+  CLOUD_BLOCK_SERVICE_URL="${HS_FILES}/services/S995cloudblock"
+  CLOUD_BLOCK_SERVICE_FILE="${INITD_FOLDER}/S995cloudblock"
 }
 
 function set_permissions() {

@@ -84,6 +84,7 @@ function info_menu_ui_k1_2025() {
   hr
   subtitle '•CUSTOMIZATION:'
   info_line "$(check_file_k1_2025 "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_file_k1_2025 "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   hr
   inner_line
   hr

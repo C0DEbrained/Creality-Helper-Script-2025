@@ -70,6 +70,7 @@ function info_menu_ui_3v3() {
   info_line "$(check_file_3v3 "$CREALITY_WEB_FILE")" 'Creality Web Interface'
   info_line "$(check_folder_3v3 "$GUPPY_SCREEN_FOLDER")" 'Guppy Screen'
   info_line "$(check_file_3v3 "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_file_3v3 "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   hr
   inner_line
   hr

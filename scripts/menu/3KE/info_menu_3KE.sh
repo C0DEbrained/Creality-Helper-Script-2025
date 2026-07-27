@@ -68,6 +68,7 @@ function info_menu_ui_3ke() {
   info_line "$(check_file_3ke "$CREALITY_WEB_FILE")" 'Creality Web Interface'
   info_line "$(check_folder_3ke "$GUPPY_SCREEN_FOLDER")" 'Guppy Screen'
   info_line "$(check_file_3ke "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_file_3ke "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   hr
   inner_line
   hr
