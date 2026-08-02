@@ -23,29 +23,47 @@ do
 done
 
 echo -e "Info: Downloading opkg package manager from Entware repo..."
-chmod 755 /usr/data/helper-script/files/fixes/curl
-primary_URL="https://bin.entware.net/mipselsf-k3.4/installer"
-secondary_URL="http://www.openk1.org/static/entware/mipselsf-k3.4/installer"
 
+# entware.sh runs this file with `sh`, not `.`, and paths.sh does not export
+# $CURL, so it is not visible here. Honour it if a caller ever exports it, and
+# otherwise resolve the vendored curl relative to this script rather than
+# hardcoding /usr/data/helper-script, which breaks any non-default clone path.
+CURL="${CURL:-$(dirname "$0")/../fixes/curl}"
+chmod 755 "$CURL"
+
+primary_URL="https://bin.entware.net/mipselsf-k3.4/installer"
+
+# -f so that an HTTP error status is reported as a failure. Without it curl
+# exits 0 and writes the error page to the output path, which for /opt/bin/opkg
+# means an HTML document is chmod 755'd and executed as root below.
 download_files() {
   local url="$1"
   local output_file="$2"
-  /usr/data/helper-script/files/fixes/curl -L "$url" -o "$output_file"
+  "$CURL" -fL "$url" -o "$output_file"
   return $?
 }
 
-if download_files "$primary_URL/opkg" "/opt/bin/opkg"; then
-  download_files "$primary_URL/opkg.conf" "/opt/etc/opkg.conf"
-else
-  echo -e "Info: Unable to download from Entware repo. Attempting to download from openK1 repo..."
-  if download_files "$secondary_URL/opkg" "/opt/bin/opkg"; then
-    download_files "$secondary_URL/opkg.conf" "/opt/etc/opkg.conf"
-  else
-    echo "Info: Failed to download from openK1 repo..."
-    rm -rf /opt
-    rm -rf /usr/data/opt
-    exit 1
-  fi
+# No mirror fallback: this binary is executed as root and there is no published
+# checksum to verify a second source against. See the PR discussion before
+# re-adding one.
+if ! download_files "$primary_URL/opkg" "/opt/bin/opkg" ||
+   ! download_files "$primary_URL/opkg.conf" "/opt/etc/opkg.conf"; then
+  echo "Error: Failed to download opkg from ${primary_URL}."
+  echo "       Check the printer's network and DNS, then run the installer again:"
+  echo "         ping -c1 bin.entware.net"
+  rm -rf /opt
+  rm -rf /usr/data/opt
+  exit 1
+fi
+
+# Sanity check, not authentication: opkg is about to be made executable and run
+# as root. This catches truncated transfers and captive-portal or error-page
+# bodies that arrive with a 200 status. The real opkg is ~877 KB.
+if [ "$(wc -c < /opt/bin/opkg)" -lt 65536 ]; then
+  echo "Error: The downloaded opkg is too small to be valid - refusing to run it."
+  rm -rf /opt
+  rm -rf /usr/data/opt
+  exit 1
 fi
 
 echo -e "Info: Applying permissions..."
