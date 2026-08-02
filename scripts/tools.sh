@@ -63,8 +63,8 @@ function add_chassis_light_control_message(){
   title 'Add chassis light control' "${yellow}"
   inner_line
   hr
-  echo -e " в”‚ ${cyan}This adds K1 2025 chassis light control to printer.cfg.     ${white}в”‚"
-  echo -e " в”‚ ${cyan}The LED is connected to PA8.                                 ${white}в”‚"
+  echo -e " │ ${cyan}This adds K1 2025 chassis light control to printer.cfg.     ${white}│"
+  echo -e " │ ${cyan}The LED is connected to PA8.                                 ${white}│"
   hr
   bottom_line
 }
