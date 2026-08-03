@@ -77,24 +77,24 @@ aspect_ratio: 16:9
 EOF
 }
 
+# Makes mjpg-streamer available for the camera service this model actually runs.
+# Returns non-zero (after reporting) when it cannot; callers must check.
 function ensure_mjpg_streamer_packages(){
-  # K-series firmware already ships mjpg-streamer at /usr/bin (I tested this on my K1 Max and someone on discord checked on the K1C)
-  [ -x /usr/bin/mjpg_streamer ] && return
-
-  if "$ENTWARE_FILE" list | grep -q '^mjpg-streamer '; then
-    return
-  fi
-
   if [ "$model" = "K1_2025" ]; then
-    echo -e "Info: Updating Entware repository for mjpg-streamer packages..."
-    sed -i '1s|.*|src/gz entware http://bin.entware.net/mipselsf-k3.4|' /opt/etc/opkg.conf
-    "$ENTWARE_FILE" update
-  fi
-
-  if ! "$ENTWARE_FILE" list | grep -q '^mjpg-streamer '; then
-    error_msg "mjpg-streamer packages are not available in the configured Entware repository!"
+    # The 2025 camera services hardcode /usr/bin/mjpg_streamer and
+    # /usr/lib/mjpg-streamer, which the firmware supplies on a read-only
+    # squashfs. opkg writes to /opt and cannot help here.
+    [ -x /usr/bin/mjpg_streamer ] && return 0
+    error_msg "mjpg_streamer not found in firmware; this model requires it."
     return 1
   fi
+
+  # Legacy K1/3V3/3KE/10SE/E5M: the services read /opt/bin and /opt/lib, so
+  # Entware is the source and the package list must be current.
+  echo -e "Info: Updating Entware repository for mjpg-streamer packages..."
+  "$ENTWARE_FILE" update || { error_msg "Could not refresh the package list."; return 1; }
+  "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http \
+    mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
 }
 
 function disable_entware_builtin_mjpg_streamer(){
@@ -130,6 +130,14 @@ function install_usb_camera(){
     case "${yn}" in
       Y|y)
         echo -e "${white}"
+        # Check packages before anything destructive: a failure here must leave
+        # the printer exactly as it was, and must return to the menu rather
+        # than propagate through helper.sh's global "set -e".
+        echo -e "Info: Checking necessary packages..."
+        if ! ensure_mjpg_streamer_packages; then
+          error_msg "USB Camera Support has not been installed!"
+          return 0
+        fi
         if [ "$model" = "K1_2025" ]; then
           k1_2025_migrate_entware_boot_if_needed
           disable_entware_builtin_mjpg_streamer
@@ -175,11 +183,6 @@ function install_usb_camera(){
           done
         fi
         chmod 755 "$USB_CAMERA_FILE"
-        echo -e "Info: Installing necessary packages..."
-        if [ ! -x /usr/bin/mjpg_streamer ]; then
-          ensure_mjpg_streamer_packages
-          "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
-        fi
         if [ "$model" = "K1_2025" ]; then
           configure_usb_camera_k1_2025
           if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
@@ -212,6 +215,13 @@ function install_builtin_camera(){
     case "${yn}" in
       Y|y)
         echo -e "${white}"
+        # Same ordering rule as install_usb_camera: nothing destructive runs
+        # until the packages are known to be in place.
+        echo -e "Info: Checking necessary packages..."
+        if ! ensure_mjpg_streamer_packages; then
+          error_msg "Built-in Camera Fix has not been installed!"
+          return 0
+        fi
         k1_2025_migrate_entware_boot_if_needed
         disable_entware_builtin_mjpg_streamer
         echo -e "Info: Copying file..."
@@ -221,11 +231,6 @@ function install_builtin_camera(){
         rm -f "$BUILTIN_CAMERA_LEGACY_FILE"
         cp "$BUILTIN_CAMERA_K1_2025_URL" "$BUILTIN_CAMERA_FILE"
         chmod 755 "$BUILTIN_CAMERA_FILE"
-        echo -e "Info: Installing necessary packages..."
-        if [ ! -x /usr/bin/mjpg_streamer ]; then
-          ensure_mjpg_streamer_packages
-          "$ENTWARE_FILE" update && "$ENTWARE_FILE" install mjpg-streamer mjpg-streamer-input-http mjpg-streamer-input-uvc mjpg-streamer-output-http mjpg-streamer-www
-        fi
         configure_builtin_camera_k1_2025
         if [ -f "$INITD_FOLDER"/S56moonraker_service ]; then
           stop_moonraker
