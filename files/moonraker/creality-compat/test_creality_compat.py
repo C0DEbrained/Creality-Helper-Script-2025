@@ -430,6 +430,18 @@ def test_keyword_narrows_the_count_not_just_the_page():
     assert call(shim, keyword="a")["count"] == 2
 
 
+def test_a_keyword_does_not_hide_subdirectories():
+    """Files narrow, folders do not. A search that hides the folder you were
+    about to open is the same "it looks deleted" failure this shim exists to
+    avoid, and the golden captures do not cover keyword-with-directories — so
+    this is the chosen reading, not a measured one. Pinned either way."""
+    shim, _, _ = build(dirs=[entry("models", True), entry("spares", True)],
+                       files=[entry("cube.gcode"), entry("other.gcode")])
+    result = call(shim, keyword="cube")
+    assert names(result) == [("d", "models"), ("d", "spares"), ("f", "cube.gcode")]
+    assert result["count"] == 3
+
+
 def test_count_is_the_total_before_paging():
     shim, _, _ = build(files=[entry("%02d.gcode" % i) for i in range(10)])
     result = call(shim, start=0, limit=3)
@@ -619,24 +631,45 @@ def test_a_directory_with_no_thumbs_is_not_an_error(tmp_path):
     assert call(shim)["items"][0].get("thumbnails") in (None, [])
 
 
-def test_only_the_page_is_decorated(tmp_path):
+def test_only_the_page_is_decorated(tmp_path, fake_pil):
     """Thumbnail work happens AFTER the slice. Sorting reads filename/modified/
     size and never thumbnails, so nothing above needs it — and doing it first
     meant a 91-file directory did the work for all 91 to serve 20 rows, on the
-    event loop that also serves klippy and Fluidd, during a print."""
-    root = thumbs_dir(tmp_path, "a-195x195.png", "b-195x195.png")
+    event loop that also serves klippy and Fluidd, during a print.
+
+    Asserted on the WORK DONE, not on the page contents. An earlier version of
+    this test checked only that the page held one file, which is true whether
+    the merge runs before or after the slice — moving the decoration back before
+    the slice left the whole suite green.
+    """
+    root = thumbs_dir(tmp_path, "a-300x300.png", "b-300x300.png")
     shim, _, _ = build(disk_root=root,
                        files=[entry("a.gcode"), entry("b.gcode")])
     result = call(shim, start=0, limit=1)
     assert result["count"] == 2
     assert result["items"][0]["filename"] == "a.gcode"
     assert result["items"][0]["thumbnails"]
+    # b.gcode is off the page, so nothing may have been rendered for it.
+    assert {os.path.basename(p) for p, _ in fake_pil.calls} == {"a-300x300.png"}
 
 
-def test_an_empty_page_does_no_thumbnail_work(tmp_path):
-    root = thumbs_dir(tmp_path, "a-195x195.png")
+def test_an_empty_page_does_no_thumbnail_work(tmp_path, fake_pil):
+    root = thumbs_dir(tmp_path, "a-300x300.png")
     shim, _, _ = build(disk_root=root, files=[entry("a.gcode")])
     assert call(shim, start=0, limit=0)["items"] == []
+    assert fake_pil.calls == []
+
+
+def test_the_response_carries_every_key_nexusp_returned(tmp_path):
+    """Pinned against the ten golden captures, whose result keys are exactly
+    {count, disk_usage, items, root_info}. An earlier version dropped
+    disk_usage, which the screen reads its free-space figure from — a blank
+    readout with no error, which is the failure class this option exists to
+    remove."""
+    shim, _, _ = build(files=[entry("a.gcode")])
+    result = call(shim)
+    assert sorted(result) == ["count", "disk_usage", "items", "root_info"]
+    assert result["disk_usage"] == {"total": 1, "used": 0, "free": 1}
 
 
 # --------------------------------------------------------------------------
@@ -820,61 +853,33 @@ def test_a_missing_pillow_still_lists_every_thumbnail_on_disk(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# `.thumbs` is kept out of file_manager's inotify watch
+# Writes are bounded, and nothing is reserved
 # --------------------------------------------------------------------------
 
-def test_existing_thumb_dirs_are_reserved_at_load(tmp_path, fake_pil):
-    """Writing a PNG into a watched directory fires `notify_filelist_changed`,
-    and file_manager has no dot-directory filter — so generating thumbnails
-    inside a listing would broadcast a phantom `create_file` for every PNG to
-    Fluidd and to the screen. Reserving has to happen before file_manager's
-    initial scan, which runs in its `component_init`, after every component is
-    constructed."""
-    root = thumbs_dir(tmp_path, "Cube-195x195.png")
-    sub = tmp_path / "sub" / ".thumbs"
-    sub.mkdir(parents=True)
-    _, fm, _ = build(disk_root=root)
-    reserved = {path for path, _ in fm.reserved.values()}
-    assert reserved == {os.path.join(root, ".thumbs"), str(sub)}
+def test_renders_are_capped_per_request(tmp_path, fake_pil):
+    """Each generated PNG makes Moonraker broadcast a phantom `create_file` —
+    file_manager watches every directory under gcodes and has no dot-directory
+    filter. The cap bounds the burst one large page can produce; the files past
+    it get their thumbnails on a later listing.
+    """
+    names = ["f%02d-300x300.png" % i for i in range(20)]
+    root = thumbs_dir(tmp_path, *names)
+    shim, _, _ = build(disk_root=root,
+                       files=[entry("f%02d.gcode" % i) for i in range(20)])
+    call(shim, limit=100)
+    assert len(fake_pil.calls) == cc.MAX_RENDERS_PER_REQUEST
 
 
-def test_reserved_thumb_dirs_stay_readable(tmp_path, fake_pil):
-    """Read access is left on, or the thumbnails stop being served over HTTP
-    and every tile goes blank — the exact failure this is meant to fix."""
-    root = thumbs_dir(tmp_path, "Cube-195x195.png")
-    _, fm, _ = build(disk_root=root)
-    assert all(read_access for _, read_access in fm.reserved.values())
-
-
-def test_a_new_thumb_dir_is_reserved_before_it_is_created(tmp_path, fake_pil):
-    """The directory-create inotify event checks the reserved list, so the
-    reservation only works if it lands first. Here `.thumbs` does not exist at
-    load — the source is a slicer-embedded thumbnail — so the component has to
-    reserve it on the way to creating it."""
-    root = str(tmp_path)
-    shim, fm, _ = build(disk_root=root, files=[
-        dict(entry("Cube.gcode"), thumbnails=[
-            {"width": 300, "height": 300, "size": 9,
-             "relative_path": ".thumbs/Cube-300x300.png"}])])
-    assert fm.reserved == {}
+def test_the_component_reserves_nothing(tmp_path, fake_pil):
+    """A reserved path is not just a notification filter: check_reserved_path
+    with need_write=True guards delete/move/upload, so reserving `.thumbs` would
+    make every thumbnail permanently undeletable through Fluidd, with no removal
+    API — on a printer where clearing them is exactly what people do for space.
+    The phantom notifications are the cheaper problem.
+    """
+    root = thumbs_dir(tmp_path, "Cube-300x300.png")
+    shim, fm, _ = build(disk_root=root, files=[entry("Cube.gcode")])
     call(shim)
-    assert os.path.join(root, ".thumbs") in {p for p, _ in fm.reserved.values()}
-    assert os.path.isdir(os.path.join(root, ".thumbs"))
-
-
-def test_nothing_is_reserved_when_generation_is_off(tmp_path, fake_pil):
-    """No writes, no phantom notifications, no reason to hide `.thumbs` from
-    Fluidd's file list."""
-    root = thumbs_dir(tmp_path, "Cube-195x195.png")
-    _, fm, _ = build(disk_root=root, generate_thumbnails=False)
-    assert fm.reserved == {}
-
-
-def test_nothing_is_reserved_when_pillow_is_missing(tmp_path):
-    """Same reasoning: without Pillow the component never writes a PNG, so
-    there is nothing to keep out of the watch."""
-    root = thumbs_dir(tmp_path, "Cube-195x195.png")
-    _, fm, _ = build(disk_root=root)
     assert fm.reserved == {}
 
 

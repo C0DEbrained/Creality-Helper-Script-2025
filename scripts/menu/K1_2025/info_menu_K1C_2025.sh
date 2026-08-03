@@ -68,7 +68,13 @@ function check_creality_services_k1_2025() {
 # race for port 7125 to Moonraker at every boot. Retire Nexusp Backend offers
 # the repair.
 function check_nexusp_retired_k1_2025() {
-  if nexusp_resurrected; then
+  if nexusp_absent; then
+    # This firmware ships no nexusp in either form, so there is nothing to
+    # retire. A red cross here would read as an unfinished action on a printer
+    # where the action does not apply - the Customize menu already checks
+    # nexusp_absent first for the same reason.
+    echo -e "${cyan}-"
+  elif nexusp_resurrected; then
     echo -e "${yellow}~"
   elif nexusp_retired; then
     echo -e "${green}✓"

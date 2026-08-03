@@ -57,7 +57,15 @@
 # on the reference in this file.
 #
 # `keyword` is a case-insensitive substring match on the name, and it narrows
-# `count` as well as the page.
+# `count` as well as the page. It applies to FILES ONLY — subdirectories are
+# listed whatever the keyword, per the rule above.
+#
+# That last part is the one behaviour in this file chosen rather than measured.
+# The ten golden captures happen not to cover it: the only keyword case has no
+# subdirectories in it and the only directory case sends no keyword, so what
+# nexusp did here is genuinely unknown. Of the two readings, this is the one
+# that cannot make something vanish from the browser — a folder disappearing
+# while you type is indistinguishable from a folder that was deleted.
 #
 # `since` and `before` are accepted and DELIBERATELY IGNORED, because that is
 # what nexusp does. Measured, not assumed: a window excluding almost every file
@@ -227,10 +235,26 @@ HIST_INSTANCE_FALLBACK = "default"
 THUMB_DIR = ".thumbs"
 THUMB_RE = re.compile(r"^(?P<stem>.+)-(?P<w>\d+)x(?P<h>\d+)\.png$")
 
-# Bound on the load-time walk that finds `.thumbs` directories to reserve. A
-# gcodes root deep or wide enough to exceed this is not a printer this option
-# was measured on, and the walk runs before Moonraker serves anything.
-MAX_RESERVE_WALK_DIRS = 2000
+# Renders per request, across the whole page.
+#
+# WRITING A PNG INTO `.thumbs` MAKES MOONRAKER BROADCAST A PHANTOM create_file.
+# file_manager watches every directory under the gcodes root and has no dot
+# directory filter, so each generated thumbnail is announced to Fluidd and to
+# the screen as a new file appearing. An earlier version suppressed that by
+# calling `file_manager.add_reserved_path` on each `.thumbs` directory - which
+# works, and costs far too much: `check_reserved_path(path, need_write=True)`
+# guards delete/move/upload, so a reserved `.thumbs` becomes permanently
+# UNDELETABLE through Fluidd on a printer where clearing thumbnails is exactly
+# what people do for space, there is no removal API for a reservation, and
+# `get_path_info` linear scans the reserved list once per directory entry so
+# every listing in Moonraker pays for it forever.
+#
+# So the notifications are accepted instead, and merely bounded: generation
+# already happens once per file for the life of that file, and this cap stops a
+# single large page turning into a burst. The events are transient and
+# self-limiting; the reservation's costs were permanent and fell on people not
+# using this option.
+MAX_RENDERS_PER_REQUEST = 8
 
 # The screen sends commas (`name,asc,folder`). The rest are accepted because the
 # cost of another separator turning up is a sort that silently does nothing.
@@ -279,6 +303,18 @@ class CrealityCompat:
                     "file browser needs it. Report it against the helper "
                     "script rather than editing this file blind.", 500
                 )
+        # Coupling 3 checked here too, not just its table name. Importing
+        # HIST_TABLE catches a renamed CONSTANT; it does not catch a renamed or
+        # restructured `history_table` ATTRIBUTE, which would load clean, appear
+        # healthy in /server/info, pass the option's own verification, and then
+        # raise the first time the screen asks for a count.
+        history = self.server.lookup_component("history")
+        if not hasattr(history, "history_table"):
+            raise self.server.error(
+                "creality_compat: history component has no 'history_table'. "
+                "This Moonraker is newer than the component; server.history."
+                "count needs it.", 500
+            )
 
         # Pillow, once, here — not per request. Missing PIL must cost one log
         # line at startup, not a traceback per file forever.
@@ -287,9 +323,6 @@ class CrealityCompat:
         # because it encodes directory, stem and size. In memory only, so a
         # repaired filesystem heals at the next Moonraker restart.
         self._failed_renders: Set[str] = set()
-        self._reserved_thumb_dirs: Set[str] = set()
-        if self.generate_thumbs:
-            self._reserve_existing_thumb_dirs(fm)
 
         # WEBSOCKET only, deliberately. `register_endpoint` defaults to every
         # transport, which would answer `GET /server/files/directory_ex` over
@@ -334,46 +367,14 @@ class CrealityCompat:
             return None
         return Image
 
-    def _reserve_thumb_dir(self, fm: Any, thumb_dir: str) -> None:
-        """Keep `.thumbs` out of file_manager's inotify watch.
-
-        Writing a PNG into a watched directory fires `notify_filelist_changed`,
-        and file_manager has no dot-directory filter — so generating thumbnails
-        inside a listing would broadcast a phantom `create_file` for every PNG
-        to Fluidd and to the screen. A reserved path is skipped both by the
-        initial scan and by the directory-create handler, and read access is
-        left on so the thumbnails are still served over HTTP.
-
-        This must happen BEFORE the directory is scanned or created, which is
-        why the existing ones are reserved at load (file_manager's initial scan
-        runs in its `component_init`, after every component is constructed) and
-        a new one is reserved before it is made. Both `add_reserved_path` and
-        `get_directory` are public API; a failure here is cosmetic, so it is
-        logged and swallowed rather than raised.
-        """
-        if thumb_dir in self._reserved_thumb_dirs:
-            return
-        self._reserved_thumb_dirs.add(thumb_dir)
-        try:
-            fm.add_reserved_path(f"creality_compat:{thumb_dir}", thumb_dir, True)
-        except Exception:
-            logging.exception(
-                "creality_compat: could not reserve %s; thumbnail writes there "
-                "will emit spurious filelist notifications", thumb_dir
-            )
-
     def _ensure_thumb_dir(self, dir_path: str) -> bool:
-        """Reserve `<dir>/.thumbs`, then make sure it exists. Order matters.
+        """Make sure `<dir>/.thumbs` exists, and say whether it does.
 
-        Reserving first is what stops the directory-create event from starting a
-        watch on it, which is what stops every PNG written afterwards from
-        broadcasting a phantom `create_file`. Called only when there is actually
-        something to render, so a directory of thumbnail-less files never grows
-        an empty `.thumbs`.
+        Called only when there is actually something to render, so a directory
+        of thumbnail-less files never grows an empty `.thumbs` just because it
+        was browsed.
         """
         thumb_dir = os.path.join(dir_path, THUMB_DIR)
-        self._reserve_thumb_dir(
-            self.server.lookup_component("file_manager"), thumb_dir)
         if os.path.isdir(thumb_dir):
             return True
         try:
@@ -385,28 +386,6 @@ class CrealityCompat:
             )
             return False
         return True
-
-    def _reserve_existing_thumb_dirs(self, fm: Any) -> None:
-        try:
-            gcode_root = fm.get_directory("gcodes")
-        except Exception:
-            gcode_root = ""
-        if not gcode_root or not os.path.isdir(gcode_root):
-            return
-        seen = 0
-        for dir_path, subdirs, _ in os.walk(gcode_root):
-            seen += 1
-            if seen > MAX_RESERVE_WALK_DIRS:
-                logging.info(
-                    "creality_compat: stopped reserving .thumbs directories "
-                    "after %d directories; deeper ones will emit spurious "
-                    "filelist notifications when a thumbnail is written",
-                    MAX_RESERVE_WALK_DIRS
-                )
-                return
-            if THUMB_DIR in subdirs:
-                subdirs.remove(THUMB_DIR)
-                self._reserve_thumb_dir(fm, os.path.join(dir_path, THUMB_DIR))
 
     def _history_instance(self, history: Any) -> str:
         """The instance id `server.history.list` scopes to.
@@ -482,7 +461,8 @@ class CrealityCompat:
         return found
 
     def _generate_missing(
-        self, dir_path: str, stem: str, have: List[Dict[str, Any]]
+        self, dir_path: str, stem: str, have: List[Dict[str, Any]],
+        budget: List[int]
     ) -> List[Dict[str, Any]]:
         """Render the sizes nexusp used to render, from the biggest one present.
 
@@ -502,22 +482,28 @@ class CrealityCompat:
         """
         if not self.generate_thumbs or self._image is None:
             return []
-        source = None
-        for thumb in have:
-            if source is None or thumb["width"] * thumb["height"] > \
-                    source["width"] * source["height"]:
-                source = thumb
-        if source is None:
+        # Largest first, and a LIST rather than one pick. Moonraker's metadata
+        # lists thumbnails it parsed out of the gcode, whose PNGs may no longer
+        # be on disk — clearing `.thumbs` for space is exactly what people do on
+        # this printer. With a single pick, one stale metadata entry that
+        # happens to be the biggest sends both destinations to _failed_renders
+        # for the life of the process while a perfectly good smaller source sits
+        # beside it.
+        sources = sorted(have, key=lambda t: t["width"] * t["height"], reverse=True)
+        if not sources:
             return []
+        source = sources[0]
         wanted = [
             (width, height) for width, height in GENERATED_THUMB_SIZES
             if not any(t["width"] == width and t["height"] == height for t in have)
             and source["width"] >= width and source["height"] >= height
         ]
-        if not wanted or not self._ensure_thumb_dir(dir_path):
+        if not wanted or budget[0] <= 0 or not self._ensure_thumb_dir(dir_path):
             return []
         made: List[Dict[str, Any]] = []
         for width, height in wanted:
+            if budget[0] <= 0:
+                break
             name = f"{stem}-{width}x{height}.png"
             dest = os.path.join(dir_path, THUMB_DIR, name)
             # One attempt per destination per process. Retrying a render that
@@ -526,30 +512,64 @@ class CrealityCompat:
             # on its own.
             if dest in self._failed_renders:
                 continue
-            try:
-                with self._image.open(
-                    os.path.join(dir_path, source["relative_path"])
-                ) as im:
-                    im.convert("RGBA").resize(
-                        (width, height), self._image.LANCZOS).save(dest)
+            budget[0] -= 1
+            if self._render(dir_path, sources, width, height, dest):
                 made.append({
                     "width": width, "height": height,
                     "size": os.path.getsize(dest),
                     "relative_path": f"{THUMB_DIR}/{name}",
                 })
-            except Exception as why:
-                # A directory listing must not fail because one PNG would not
-                # scale. One warning per destination, then silence.
-                self._failed_renders.add(dest)
-                logging.warning(
-                    "creality_compat: could not render %s (%s); not trying "
-                    "again until Moonraker restarts", dest, why
-                )
         return made
+
+    def _render(self, dir_path: str, sources: List[Dict[str, Any]],
+                width: int, height: int, dest: str) -> bool:
+        """Downscale the first source that actually opens, ATOMICALLY.
+
+        Written to a temp name in the same directory and `os.replace`d onto the
+        destination. A direct write is visible half-finished: two concurrent
+        get_directory_ex calls decorate in separate executor threads and can
+        target the same file, and a power cut mid-write does the same. The
+        result would be a truncated PNG that is never repaired — `_failed_renders`
+        only remembers exceptions, and on the next listing the file exists with
+        the right `-WxH.png` suffix, so the size counts as satisfied forever.
+        The temp name has no `-WxH.png` suffix, so THUMB_RE cannot match it even
+        if a crash leaves one behind.
+        """
+        last_error = None
+        for source in sources:
+            # Never upscale, whichever source we fall back to. A 32x32 blown up
+            # into a 195x195 tile reads as a BROKEN thumbnail, which is worse
+            # than an absent one — and the eligibility check above only vetted
+            # the largest source, so a fallback has to be re-checked here.
+            if source["width"] < width or source["height"] < height:
+                continue
+            src_path = os.path.join(dir_path, source["relative_path"])
+            tmp = f"{dest}.part"
+            try:
+                with self._image.open(src_path) as im:
+                    im.convert("RGBA").resize(
+                        (width, height), self._image.LANCZOS).save(tmp)
+                os.replace(tmp, dest)
+                return True
+            except Exception as why:
+                last_error = why
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        # A directory listing must not fail because no PNG would scale. One
+        # warning per destination, then silence until Moonraker restarts.
+        self._failed_renders.add(dest)
+        logging.warning(
+            "creality_compat: could not render %s from any of %d source(s) "
+            "(%s); not trying again until Moonraker restarts",
+            dest, len(sources), last_error
+        )
+        return False
 
     def _merge_thumbnails(
         self, entry: Dict[str, Any], on_disk: Dict[str, List[Dict[str, Any]]],
-        dir_path: str
+        dir_path: str, budget: List[int]
     ) -> None:
         """Add the on-disk thumbnails this file has that the metadata omits.
 
@@ -564,7 +584,7 @@ class CrealityCompat:
         have = {(t.get("width"), t.get("height")) for t in thumbs}
         thumbs.extend(t for t in on_disk.get(stem, [])
                       if (t["width"], t["height"]) not in have)
-        thumbs.extend(self._generate_missing(dir_path, stem, thumbs))
+        thumbs.extend(self._generate_missing(dir_path, stem, thumbs, budget))
         if not thumbs:
             return
         entry["thumbnails"] = sorted(thumbs, key=lambda t: t["width"] * t["height"])
@@ -582,8 +602,14 @@ class CrealityCompat:
         if not files:
             return
         on_disk = self._disk_thumbnails(dir_path)
+        # A one-element list rather than an int so the count is shared by
+        # reference across every file on the page. Each generated PNG makes
+        # Moonraker broadcast a create_file, so the cap bounds the burst a
+        # single large page can produce; the files past it simply get their
+        # thumbnails on a later listing.
+        budget = [MAX_RENDERS_PER_REQUEST]
         for entry in files:
-            self._merge_thumbnails(entry, on_disk, dir_path)
+            self._merge_thumbnails(entry, on_disk, dir_path, budget)
 
     def _sorted(self, items: List[Dict[str, Any]], order: str) -> List[Dict[str, Any]]:
         # Case-folded, and split on commas/semicolons as well as whitespace: the
@@ -628,8 +654,12 @@ class CrealityCompat:
         dirs: List[Dict[str, Any]] = []
         files: List[Dict[str, Any]] = []
         for entry in listing["dirs"]:
+            # Directories are NOT keyword-filtered. See the header: the rule is
+            # that subdirectories are always listed, and a search that hides the
+            # folder you were about to open is the same "it looks deleted"
+            # failure this shim exists to avoid.
             name = entry.get("dirname", "")
-            if self._visible(name, True) and keyword in name.lower():
+            if self._visible(name, True):
                 dirs.append(dict(entry, type="d"))
         for entry in listing["files"]:
             name = entry.get("filename", "")
@@ -650,7 +680,19 @@ class CrealityCompat:
         # only reader and it has always been given one.
         root_info.setdefault("name", root)
         root_info["path"] = path
-        return {"items": page, "count": count, "root_info": root_info}
+        # `disk_usage` is in every one of the ten golden nexusp captures
+        # (`{"count", "disk_usage", "items", "root_info"}`), and an earlier
+        # version of this shim dropped it. Moonraker computes it in
+        # `_list_directory` for free, and a client reading a key that is now
+        # absent shows a blank or stale free-space figure with no error - the
+        # silent-wrong-answer failure this whole option exists to remove. Extra
+        # keys are ignored by JSON clients; missing ones are not.
+        return {
+            "items": page,
+            "count": count,
+            "disk_usage": listing.get("disk_usage", {}),
+            "root_info": root_info,
+        }
 
     # -- server.history.count -----------------------------------------------
 

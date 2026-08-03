@@ -58,17 +58,35 @@ history would silently stop at the day you retired it.
 - Two of the four Creality-only RPC methods are deliberately not implemented:
   `server.history.debug.job` and `server.debug.status`. Neither is
   screen-facing.
+- **The two shimmed methods answer over the websocket only.** `curl
+  http://<printer>:7125/server/files/get_directory_ex` returns 404 by design —
+  that is what nexusp did, and matching it is the point. Note that this 404 is
+  identical to the one you get when the component is not loaded at all, so it
+  is not a way to check. To confirm the shim is live:
 
-### Running the component's tests
+  ```sh
+  curl -s http://<printer>:7125/server/info
+  ```
 
-The component and the history merge ship with their tests beside them. They are
-the executable record of what was measured against `nexusp` before it was
-switched off — once it is retired those measurements cannot be re-derived
-without reviving it. They need only Python and pytest, no printer and no
-Moonraker:
+  and look for `creality_compat` in `components` (and *not* in
+  `failed_components`).
+
+### Running the tests
+
+Everything ships with tests beside it. They are the executable record of what
+was measured against `nexusp` before it was switched off — once it is retired
+those measurements cannot be re-derived without reviving it. No printer, no
+Moonraker, no network:
 
 ```sh
-python3 -m pytest -q files/moonraker/creality-compat
+python3 -m pytest -q
 ```
 
-This repository has no CI, so nothing runs them automatically.
+That runs both suites: the Moonraker component and history merge under
+`files/moonraker/creality-compat/`, and the shell option under `tests/`. The
+component suite also runs standalone from its own directory with no conftest.
+
+The shell tests exercise `sed -i` the way the printer does, which is GNU/busybox
+syntax; on macOS they skip unless `gsed` is installed (`brew install gnu-sed`).
+
+This repository has no CI, so nothing runs any of this automatically.

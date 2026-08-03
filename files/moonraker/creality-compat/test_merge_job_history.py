@@ -53,6 +53,10 @@ sys.path.insert(0, REPO)
 
 import merge_job_history as mjh  # noqa: E402
 
+# Captured before the autouse fixture below stubs it out, so the handful of
+# tests that are ABOUT the guard can still reach the real implementation.
+REAL_MOONRAKER_RUNNING = mjh.moonraker_running
+
 # Verbatim from the reference unit. moonraker declares metadata/auxiliary_data
 # as `pyjson` and nexusp as TEXT; sqlite type names are advisory and the script
 # connects without detect_types, so one DDL serves both here.
@@ -155,6 +159,19 @@ def run_argv(monkeypatch, capsys, *flags):
     return capsys.readouterr().out
 
 
+@pytest.fixture(autouse=True)
+def no_daemon_by_default(monkeypatch):
+    """These tests are about the merge, not about the host's process table.
+
+    Without this every `--apply` test reads the REAL /proc. They pass on a Mac
+    only because /proc does not exist there; on Linux — including the printer,
+    where a user is most likely to run them — a live Moonraker makes main()
+    SystemExit and they all fail for a reason unrelated to what they assert.
+    The two tests that are about the guard opt back in explicitly.
+    """
+    monkeypatch.setattr(mjh, "moonraker_running", lambda *a, **k: None)
+
+
 # --------------------------------------------------------------------------
 # The dedupe window
 # --------------------------------------------------------------------------
@@ -193,6 +210,35 @@ def test_a_failed_print_and_its_retry_both_survive():
     new, dupes, _ = mjh.classify([job(T0, status="klippy_shutdown"),
                                   job(T0 + 610)], target)
     assert (len(new), len(dupes)) == (1, 1)
+
+
+def test_two_source_rows_never_collapse_onto_one_target_row():
+    """THE DATA LOSS CASE. Matching must be one to one.
+
+    A cancelled print and its retry a minute apart, where the target daemon
+    recorded only ONE of the pair — which is not exotic, it is half the reason
+    this merge exists (the reference unit's Moonraker missed two prints the
+    screen saw). Both source rows sit inside the 120 s window of that single
+    target row. Without claim tracking both are called duplicates and the print
+    that exists nowhere else is dropped, silently, with the dry run reporting
+    'to insert: 0'.
+    """
+    target = [job(T0 + 60)]
+    new, dupes, _ = mjh.classify([job(T0), job(T0 + 60)], target)
+    assert (len(new), len(dupes)) == (1, 1)
+    # And it must be the RIGHT row. Matching greedily in table order gets these
+    # counts while pairing the failed print to the retry's row, which inserts
+    # the retry a second time and loses the failed print anyway.
+    assert new[0][0]["start_time"] == T0
+    assert dupes[0][0]["start_time"] == T0 + 60
+
+
+def test_the_nearest_start_time_wins_a_contested_match():
+    """Closest first, not table order — an exact match must win its own row."""
+    target = [job(T0 + 100), job(T0 + 5)]
+    new, dupes, _ = mjh.classify([job(T0)], target)
+    assert len(dupes) == 1
+    assert dupes[0][1]["start_time"] == T0 + 5
 
 
 def test_different_files_at_the_same_instant_are_distinct():
@@ -291,7 +337,7 @@ def test_totals_land_in_the_database_as_a_replace(monkeypatch, capsys, tmp_path)
 # --------------------------------------------------------------------------
 
 def test_a_live_daemon_blocks_and_force_overrides(monkeypatch, capsys, tmp_path):
-    monkeypatch.setattr(mjh, "moonraker_running", lambda: "python moonraker.py")
+    monkeypatch.setattr(mjh, "moonraker_running", lambda *a, **k: "python moonraker.py")
     into = make_db(tmp_path / "into.db", [job(T0)])
     source = make_db(tmp_path / "src.db", [job(T0 + 9999)])
     with pytest.raises(SystemExit):
@@ -302,11 +348,58 @@ def test_a_live_daemon_blocks_and_force_overrides(monkeypatch, capsys, tmp_path)
     assert len(rows_of(into)) == 2
 
 
-def test_no_proc_reads_as_no_daemon(monkeypatch):
+def test_no_proc_reads_as_no_daemon(tmp_path):
     """The workstation rehearsal path: /proc does not exist on a Mac, and the
     guard must degrade to "nothing running here" rather than crash."""
-    monkeypatch.setattr(os.path, "isdir", lambda p: False)
-    assert mjh.moonraker_running() is None
+    assert REAL_MOONRAKER_RUNNING(str(tmp_path / "no-such-proc")) is None
+
+
+# The guard's own matching logic. Every other test stubs moonraker_running out,
+# so without these the substring match is never executed against a realistic
+# cmdline — and this is the only thing standing between a live daemon and an
+# irreversible write to a user's print history.
+
+def fake_proc(tmp_path, **pids):
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    for pid, cmd in pids.items():
+        (proc / pid).mkdir()
+        (proc / pid / "cmdline").write_bytes(cmd)
+    (proc / "cpuinfo").write_text("not a pid")
+    return str(proc)
+
+
+def test_a_live_moonraker_is_detected(tmp_path):
+    """The exact shape S56moonraker_service produces: the venv interpreter with
+    moonraker.py as an argument, which is what busybox ps truncates away."""
+    proc = fake_proc(tmp_path, **{"42": (
+        b"/usr/data/moonraker/moonraker-env/bin/python3\x00"
+        b"/usr/data/moonraker/moonraker/moonraker/moonraker.py\x00"
+        b"-d\x00/usr/data/printer_data\x00")})
+    assert "moonraker.py" in REAL_MOONRAKER_RUNNING(proc)
+
+
+def test_a_live_nexusp_is_detected(tmp_path):
+    proc = fake_proc(tmp_path, **{"77": b"/usr/bin/nexusp\x00-d\x00/usr/data/printer_data\x00"})
+    assert "nexusp" in REAL_MOONRAKER_RUNNING(proc)
+
+
+def test_an_unrelated_process_is_not_mistaken_for_a_daemon(tmp_path):
+    """Including this script itself — it has 'merge_job_history.py' in its
+    cmdline, not 'moonraker.py', and must not block its own run."""
+    proc = fake_proc(tmp_path, **{
+        "7": b"/usr/bin/klipper\x00",
+        "9": (b"python3\x00/usr/data/helper-script/files/moonraker/"
+              b"creality-compat/merge_job_history.py\x00--apply\x00")})
+    assert REAL_MOONRAKER_RUNNING(proc) is None
+
+
+def test_an_unreadable_cmdline_is_skipped_not_fatal(tmp_path):
+    """/proc entries race with process exit; a vanished pid must not abort the
+    scan and let a different live daemon through unnoticed."""
+    proc = fake_proc(tmp_path, **{"11": b"/usr/bin/nexusp\x00"})
+    os.mkdir(os.path.join(proc, "12"))  # a pid dir with no cmdline at all
+    assert "nexusp" in REAL_MOONRAKER_RUNNING(proc)
 
 
 def test_a_missing_database_exits_before_touching_anything(monkeypatch, capsys,
@@ -315,6 +408,119 @@ def test_a_missing_database_exits_before_touching_anything(monkeypatch, capsys,
     with pytest.raises(SystemExit):
         run_main(monkeypatch, capsys, into, str(tmp_path / "nope.db"), "--apply")
     assert glob.glob(into + ".bak-merge-*") == []
+
+
+# --------------------------------------------------------------------------
+# Schema drift and instance scoping — checked in the DRY RUN, before the
+# caller has renamed anything
+# --------------------------------------------------------------------------
+
+def test_a_missing_column_is_refused_before_any_write(monkeypatch, capsys, tmp_path):
+    """`install_moonraker_nginx` runs `git checkout master; git pull` on the
+    Moonraker source, so job_history's schema is a moving target under any
+    printer. Discovering that inside the transaction means a traceback in the
+    middle of a retirement with both daemons already stopped."""
+    into = str(tmp_path / "into.db")
+    con = sqlite3.connect(into)
+    con.execute(JOB_HISTORY_DDL.replace("    filament_used REAL NOT NULL,\n", ""))
+    con.execute(JOB_TOTALS_DDL)
+    con.commit()
+    con.close()
+    source = make_db(tmp_path / "src.db", [job(T0)])
+    with pytest.raises(SystemExit) as exc:
+        run_main(monkeypatch, capsys, into, source)
+    assert "filament_used" in str(exc.value)
+    assert glob.glob(into + ".bak-merge-*") == []
+
+
+def test_an_added_not_null_column_is_refused(monkeypatch, capsys, tmp_path):
+    """The silent one. A column the script does not write, NOT NULL with no
+    default, would make every migrated row fail — or, if it were nullable,
+    succeed while carrying a NULL the daemon does not expect."""
+    into = str(tmp_path / "into.db")
+    con = sqlite3.connect(into)
+    con.execute(JOB_HISTORY_DDL.replace(
+        "    instance_id TEXT NOT NULL\n",
+        "    instance_id TEXT NOT NULL,\n    new_field TEXT NOT NULL\n"))
+    con.execute(JOB_TOTALS_DDL)
+    con.commit()
+    con.close()
+    source = make_db(tmp_path / "src.db", [job(T0)])
+    with pytest.raises(SystemExit) as exc:
+        run_main(monkeypatch, capsys, into, source)
+    assert "new_field" in str(exc.value)
+
+
+def test_an_added_nullable_column_is_allowed_and_reported(monkeypatch, capsys,
+                                                          tmp_path):
+    """Nullable additions are survivable, so they must not block a retirement —
+    but the source columns being dropped are worth naming."""
+    into = str(tmp_path / "into.db")
+    con = sqlite3.connect(into)
+    con.execute(JOB_HISTORY_DDL.replace(
+        "    instance_id TEXT NOT NULL\n",
+        "    instance_id TEXT NOT NULL,\n    new_field TEXT\n"))
+    con.execute(JOB_TOTALS_DDL)
+    con.commit()
+    con.close()
+    source = make_db(tmp_path / "src.db", [job(T0)])
+    out = run_main(monkeypatch, capsys, into, source, "--apply")
+    assert len(rows_of(into)) == 1
+
+
+def test_a_source_only_column_is_reported_as_dropped(monkeypatch, capsys, tmp_path):
+    into = make_db(tmp_path / "into.db", [job(T0)])
+    source = str(tmp_path / "src.db")
+    con = sqlite3.connect(source)
+    con.execute(JOB_HISTORY_DDL.replace(
+        "    instance_id TEXT NOT NULL\n",
+        "    instance_id TEXT NOT NULL,\n    creality_extra TEXT\n"))
+    con.execute(JOB_TOTALS_DDL)
+    con.commit()
+    con.close()
+    out = run_main(monkeypatch, capsys, into, source)
+    assert "creality_extra" in out
+
+
+def test_disjoint_instance_ids_are_refused(monkeypatch, capsys, tmp_path):
+    """Moonraker scopes every history query by instance_id. Rows carrying one
+    the reader does not filter on insert fine and are then invisible — a merge
+    that prints success and shows nothing, which is the exact failure mode this
+    whole option exists to remove."""
+    into = make_db(tmp_path / "into.db", [job(T0, instance_id="default")])
+    source = make_db(tmp_path / "src.db",
+                     [job(T0 - 86400, instance_id="creality")])
+    with pytest.raises(SystemExit) as exc:
+        run_main(monkeypatch, capsys, into, source, "--apply")
+    assert "instance_id" in str(exc.value)
+    assert len(rows_of(into)) == 1
+    assert glob.glob(into + ".bak-merge-*") == []
+
+
+def test_an_instance_mismatch_can_be_overridden_explicitly(monkeypatch, capsys,
+                                                           tmp_path):
+    into = make_db(tmp_path / "into.db", [job(T0, instance_id="default")])
+    source = make_db(tmp_path / "src.db",
+                     [job(T0 - 86400, instance_id="creality")])
+    run_main(monkeypatch, capsys, into, source, "--apply",
+             "--allow-instance-mismatch")
+    assert len(rows_of(into)) == 2
+
+
+def test_an_empty_target_does_not_trip_the_instance_check(monkeypatch, capsys,
+                                                          tmp_path):
+    """A fresh install has no rows and therefore no instance_id to compare."""
+    into = make_db(tmp_path / "into.db", [])
+    source = make_db(tmp_path / "src.db", [job(T0, instance_id="creality")])
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    assert len(rows_of(into)) == 1
+
+
+def test_the_dry_run_names_both_instance_ids(monkeypatch, capsys, tmp_path):
+    into = make_db(tmp_path / "into.db", [job(T0)])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400)])
+    out = run_main(monkeypatch, capsys, into, source)
+    assert out.count("instance_id") >= 2
 
 
 # --------------------------------------------------------------------------
@@ -440,10 +646,17 @@ def test_a_second_apply_inserts_nothing(monkeypatch, capsys, tmp_path):
     assert rows_of(into) == first
 
 
-def test_existing_job_ids_are_never_rewritten(monkeypatch, capsys, tmp_path):
-    """Renumbering would rewrite the identity of rows a client may already
-    hold — a Fluidd tab left open across the merge would then delete by an id
-    that names a different print. Inserted rows continue after the target's.
+def test_job_ids_end_up_in_start_time_order(monkeypatch, capsys, tmp_path):
+    """THE ORDERING PROPERTY. Moonraker pages history with `ORDER BY job_id`
+    (history.py, order defaults to desc) and has no ORDER BY start_time at all,
+    so after a merge the id order IS the display order.
+
+    Appending without renumbering gave the recovered prints — the OLDEST on the
+    machine, which is the whole point of the merge — the HIGHEST ids, so they
+    came back as the most recent jobs in Fluidd and on the screen while
+    server.history.count reported the right total. A correct scrollbar over a
+    wrongly ordered list is the plausible-wrong-answer failure this option
+    exists to remove.
     """
     into = make_db(tmp_path / "into.db",
                    [job(T0, job_id=41, filename="a.gcode"),
@@ -451,9 +664,42 @@ def test_existing_job_ids_are_never_rewritten(monkeypatch, capsys, tmp_path):
     source = make_db(tmp_path / "src.db",
                      [job(T0 - 86400, filename="ancient.gcode")])
     run_main(monkeypatch, capsys, into, source, "--apply")
-    by_name = {r["filename"]: r["job_id"] for r in rows_of(into)}
-    assert by_name["a.gcode"] == 41
-    assert by_name["b.gcode"] == 42
-    # The oldest print by time gets the HIGHEST id. That inversion is the
-    # deliberate trade: ids stay stable, ordering is start_time's job.
-    assert by_name["ancient.gcode"] == 43
+    by_id = [r["filename"] for r in rows_of(into, order="job_id")]
+    assert by_id == ["ancient.gcode", "a.gcode", "b.gcode"]
+    ids = [r["job_id"] for r in rows_of(into, order="job_id")]
+    assert ids == sorted(ids) and len(set(ids)) == len(ids)
+
+
+def test_renumbering_is_a_dense_sequence_from_one(monkeypatch, capsys, tmp_path):
+    """The offset pass must not leave gaps or strand rows at the shifted ids."""
+    into = make_db(tmp_path / "into.db",
+                   [job(T0 + i * 1000, job_id=100 + i, filename="f%d.gcode" % i)
+                    for i in range(3)])
+    source = make_db(tmp_path / "src.db",
+                     [job(T0 - 86400, filename="old.gcode")])
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    assert [r["job_id"] for r in rows_of(into, order="job_id")] == [1, 2, 3, 4]
+
+
+def test_rows_sharing_a_start_time_keep_their_relative_order(monkeypatch, capsys,
+                                                             tmp_path):
+    """Ties break on the existing job_id, so a merge does not permute rows it
+    had no reason to touch."""
+    into = make_db(tmp_path / "into.db",
+                   [job(T0, job_id=5, filename="first.gcode"),
+                    job(T0, job_id=6, filename="second.gcode")])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400, filename="old.gcode")])
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    by_id = [r["filename"] for r in rows_of(into, order="job_id")]
+    assert by_id == ["old.gcode", "first.gcode", "second.gcode"]
+
+
+def test_renumbering_survives_a_second_run(monkeypatch, capsys, tmp_path):
+    """Idempotency still holds: the second pass inserts nothing and the ids it
+    assigns are the ones already there."""
+    into = make_db(tmp_path / "into.db", [job(T0, filename="a.gcode")])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400, filename="old.gcode")])
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    first = rows_of(into, order="job_id")
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    assert rows_of(into, order="job_id") == first
