@@ -236,6 +236,22 @@ function nexusp_compat_load_failed() {
   esac
 }
 
+# Poll until ANYTHING answers :7125 usefully. Used by the restore path, where
+# the daemon that has to come up is Creality's, not ours, so the component check
+# below does not apply - but "did it actually start" very much does.
+function nexusp_wait_for_port_7125() {
+  local attempt
+  attempt=0
+  while [ "$attempt" -lt 30 ]; do
+    if "$CURL" -s -m 5 http://127.0.0.1:7125/server/info 2>/dev/null | grep -q '"result"'; then
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 2
+  done
+  return 1
+}
+
 # Poll until Moonraker answers on :7125 AND has actually loaded the component.
 #
 # Polling, not a single probe: start_moonraker sleeps one second, and Moonraker's
@@ -449,7 +465,7 @@ function nexusp_merge_history() {
   echo -e " will not be carried across, and after this the other database is"
   echo -e " no longer read. Note the backup path it prints.${white}"
   echo
-  read -p " ${white}Apply this print history merge? (${yellow}y${white}/${yellow}n${white}): ${yellow}" merge_yn
+  read -p " ${white}Apply this print history merge? (${yellow}y${white}/${yellow}n${white}): ${yellow}" merge_yn || merge_yn="n"
   echo -e "${white}"
   case "${merge_yn}" in
     Y|y)
@@ -477,30 +493,50 @@ function nexusp_merge_history() {
 # dead touchscreen and nothing in any log to connect it to this option.
 # --------------------------------------------------------------------------
 
+# EVERY step here is best-effort. A rollback that can itself abort is worse than
+# no rollback at all: it turns a detected failure into the exact persistent
+# dead-port state it exists to prevent, halfway through undoing it. So each step
+# is `|| true`, errexit is off for the duration, and the outcome is reported
+# from what the printer actually looks like afterwards rather than assumed.
 function nexusp_rollback_retire() {
-  local disabled_svc svc
+  local disabled_svc svc failed
+  failed=""
   echo
   echo -e "${yellow}Rolling back...${white}"
+  set +e
   if [ "$NEXUSP_RETIRE_STAGE" -ge 8 ]; then
-    nexusp_set_moonraker_port 7126 7125
+    nexusp_set_moonraker_port 7126 7125 || failed="1"
   fi
   if [ "$NEXUSP_RETIRE_STAGE" -ge 6 ]; then
     disabled_svc="$(nexusp_disabled_service)"
     if [ -n "$disabled_svc" ]; then
       svc="$(dirname "$disabled_svc")/$(basename "$disabled_svc" | sed 's/^disabled\.//')"
-      mv "$disabled_svc" "$svc" 2>/dev/null || true
+      mv "$disabled_svc" "$svc" 2>/dev/null || failed="1"
     fi
   fi
   if [ "$NEXUSP_RETIRE_STAGE" -ge 5 ]; then
-    nexusp_remove_compat_component
+    nexusp_remove_compat_component || failed="1"
   fi
   nexusp_start_service
   start_moonraker
-  nexusp_reload_nginx
+  nexusp_reload_nginx || true
+  set -e
   # The forward history merge is NOT undone, deliberately. Those rows are valid
   # Moonraker rows either way, and rolling them back would delete records that
   # exist in no other database - the exact loss this whole option is careful
   # about. Nothing else read them, so leaving them costs nothing.
+  if [ -n "$failed" ]; then
+    error_msg "The rollback did not fully complete!"
+    echo -e " ${darkred}Part of the change could not be undone - most likely /usr/data${white}"
+    echo -e " ${darkred}is full or read-only. Check that the touchscreen still works.${white}"
+    echo -e " ${darkred}Moonraker port is now: $(nexusp_moonraker_port), nexusp is${white}"
+    if nexusp_present; then
+      echo -e " ${darkred}enabled.${white}"
+    else
+      echo -e " ${darkred}still disabled - run Restore Nexusp Backend.${white}"
+    fi
+    return
+  fi
   error_msg "Nexusp has NOT been retired - the printer is back as it was."
 }
 
@@ -596,7 +632,7 @@ function retire_nexusp(){
   local yn pillow_yn repair_yn svc disabled_svc
   NEXUSP_RETIRE_STAGE=0
   while true; do
-    read -p "${white} Are you sure you want to retire ${green}Nexusp Backend ${white}? (${yellow}y${white}/${yellow}n${white}): ${yellow}" yn
+    read -p "${white} Are you sure you want to retire ${green}Nexusp Backend ${white}? (${yellow}y${white}/${yellow}n${white}): ${yellow}" yn || yn="n"
     case "${yn}" in
       Y|y)
         echo -e "${white}"
@@ -616,7 +652,7 @@ function retire_nexusp(){
           echo -e " Moonraker at every boot. The repair is to re-apply the rename,"
           echo -e " keeping the file the update wrote.${white}"
           echo
-          read -p " ${white}Disable the recreated ${green}nexusp service ${white}again? (${yellow}y${white}/${yellow}n${white}): ${yellow}" repair_yn
+          read -p " ${white}Disable the recreated ${green}nexusp service ${white}again? (${yellow}y${white}/${yellow}n${white}): ${yellow}" repair_yn || repair_yn="n"
           echo -e "${white}"
           case "${repair_yn}" in
             Y|y)
@@ -645,7 +681,7 @@ function retire_nexusp(){
           echo -e " is not on port 7125 and/or the compatibility component is"
           echo -e " missing, so nothing is answering the touchscreen.${white}"
           echo
-          read -p " ${white}Finish the retirement now? (${yellow}y${white}/${yellow}n${white}): ${yellow}" repair_yn
+          read -p " ${white}Finish the retirement now? (${yellow}y${white}/${yellow}n${white}): ${yellow}" repair_yn || repair_yn="n"
           echo -e "${white}"
           case "${repair_yn}" in
             Y|y)
@@ -669,7 +705,7 @@ function retire_nexusp(){
           echo -e " so installing it fixes both. It is a large download and there may"
           echo -e " be no prebuilt wheel for this board.${white}"
           echo
-          read -p " ${white}Install ${green}Pillow ${white}into Moonraker's virtualenv? (${yellow}y${white}/${yellow}n${white}): ${yellow}" pillow_yn
+          read -p " ${white}Install ${green}Pillow ${white}into Moonraker's virtualenv? (${yellow}y${white}/${yellow}n${white}): ${yellow}" pillow_yn || pillow_yn="n"
           echo -e "${white}"
         fi
 
@@ -700,6 +736,15 @@ function retire_nexusp(){
             set -e;;
         esac
 
+        # From here on the printer is being mutated, so arm a signal handler.
+        # helper.sh's only trap resets the terminal colour, and SIGHUP keeps its
+        # default terminate-immediately behaviour - so a dropped SSH or WiFi
+        # session anywhere below would kill the helper with both daemons stopped
+        # and, past step 6, with nexusp disabled and the port not yet moved:
+        # nothing on :7125 and no rollback. The window includes an unbounded
+        # "read the merge list" prompt, which is exactly where a user walks away.
+        # Cleared on every exit path below.
+        trap 'echo; echo -e "${yellow}Interrupted - rolling back...${white}"; nexusp_rollback_retire; trap - INT TERM HUP; exit 1' INT TERM HUP
         NEXUSP_RETIRE_STAGE=1
         # 1. Anything that can restart Moonraker behind our back has to be off
         #    BEFORE the merge, not just the daemon. Nothing in this repo can, so
@@ -725,6 +770,7 @@ function retire_nexusp(){
           echo -e " ${darkred}the helper script.${white}"
           nexusp_start_service
           start_moonraker
+          trap - INT TERM HUP
           return
         fi
         NEXUSP_RETIRE_STAGE=4
@@ -734,6 +780,7 @@ function retire_nexusp(){
         NEXUSP_RETIRE_STAGE=5
         if ! nexusp_install_compat_component; then
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
 
@@ -748,12 +795,14 @@ function retire_nexusp(){
           echo -e " ${darkred}avoid losing the backup. Delete whichever copy you do not want${white}"
           echo -e " ${darkred}and run this option again.${white}"
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
         echo -e "Info: Disabling nexusp service..."
         if ! mv "$svc" "$disabled_svc" 2>/dev/null; then
           error_msg "Could not rename $(basename "$svc") - is $(dirname "$svc") writable?"
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
         # VERIFIED, not assumed. If the rename silently did not take and the
@@ -762,6 +811,7 @@ function retire_nexusp(){
         if [ -f "$svc" ] || [ ! -f "$disabled_svc" ]; then
           error_msg "The nexusp service did not stay renamed!"
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
         NEXUSP_RETIRE_STAGE=6
@@ -772,6 +822,7 @@ function retire_nexusp(){
         NEXUSP_RETIRE_STAGE=8
         if ! nexusp_set_moonraker_port 7125 7126; then
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
 
@@ -794,6 +845,7 @@ function retire_nexusp(){
         echo -e "Info: Waiting for Moonraker to come up on port 7125..."
         if ! nexusp_verify_retired; then
           nexusp_rollback_retire
+          trap - INT TERM HUP
           return
         fi
 
@@ -805,6 +857,7 @@ function retire_nexusp(){
         echo -e "   ${cyan}resolves itself and needs no action.${white}"
         echo -e "   ${cyan}A firmware update can put the nexusp service back - the menus${white}"
         echo -e "   ${cyan}report it, and re-running this option repairs it.${white}"
+        trap - INT TERM HUP
         return;;
       N|n)
         error_msg "Retiring canceled!"
@@ -896,18 +949,44 @@ function restore_nexusp(){
           fi
         fi
 
-        # Only now, with the service back on disk, give up the port.
-        nexusp_set_moonraker_port 7126 7125
-        nexusp_remove_compat_component
+        # Only now, with the service back on disk, give up the port. Guarded:
+        # these report write failures rather than letting errexit escape, and an
+        # unguarded call here would exit the helper with nexusp renamed-but-not-
+        # started and Moonraker still stopped - nothing on :7125 at all.
+        if ! nexusp_set_moonraker_port 7126 7125; then
+          error_msg "Could not move Moonraker back to port 7126!"
+          echo -e " ${darkred}Undoing: the printer stays retired and keeps working.${white}"
+          set +e
+          nexusp_set_moonraker_port 7125 7126
+          mv "$svc" "$disabled_svc" 2>/dev/null
+          set -e
+          start_moonraker
+          nexusp_reload_nginx || true
+          return
+        fi
+        nexusp_remove_compat_component || true
 
         echo -e "Info: Starting Moonraker service..."
         start_moonraker
         nexusp_start_service
-        nexusp_reload_nginx
+        nexusp_reload_nginx || true
+
+        # Verify, do not assume. nexusp_start_service discards the init script's
+        # status by design, so without this the option announces success while
+        # the touchscreen's only backend failed to start and NOTHING is on
+        # :7125 - Moonraker has already moved off it.
+        echo -e "Info: Waiting for nexusp to come up on port 7125..."
+        if ! nexusp_wait_for_port_7125; then
+          error_msg "nexusp did not answer on port 7125 after restarting!"
+          echo -e " ${darkred}The touchscreen has no backend. Its database was restored and${white}"
+          echo -e " ${darkred}is intact.${white}"
+          echo -e " ${cyan}Run Retire Nexusp Backend to put Moonraker back on 7125,${white}"
+          echo -e " ${cyan}or reboot the printer to let nexusp start from init.${white}"
+          echo
+          return
+        fi
         ok_msg "Nexusp Backend has been restored successfully!"
         echo -e "   ${cyan}The touchscreen is back on nexusp, and Moonraker on 7126.${white}"
-        echo -e "   ${cyan}If the screen stays blank, nexusp did not start: re-run Retire${white}"
-        echo -e "   ${cyan}Nexusp Backend to put Moonraker back on 7125.${white}"
         return;;
       N|n)
         error_msg "Restoration canceled!"

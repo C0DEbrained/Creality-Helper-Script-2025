@@ -368,8 +368,24 @@ def renumber_by_start_time(con):
 
     Done as an offset pass rather than in place: job_id is `INTEGER PRIMARY KEY
     ASC`, so assigning 1..N directly would collide with rows that still hold
-    those ids. Shifting every row above the current maximum first makes the
-    second pass collision-free without needing a temp table.
+    those ids. Shifting every row into a staging range first makes the second
+    pass collision-free without needing a temp table.
+
+    The staging offset is `max(current_max, N)`, and BOTH terms are load-bearing.
+    `current_max` alone is wrong whenever the greatest existing id is negative -
+    SQLite allows that, since INTEGER PRIMARY KEY is a signed rowid alias. For
+    ids [-2, -1] the offset would be -1, staging becomes [0, 1], and the second
+    pass then tries to move 0 onto 1 while a row is already sitting there:
+    `UNIQUE constraint failed`. The transaction rolls back safely, but a
+    perfectly valid database becomes unmergeable and the retirement aborts with
+    a traceback at the point where both daemons are stopped.
+
+    With offset = max(current_max, N):
+      - staging is offset+1 .. offset+N, every value > current_max, so it cannot
+        collide with an id not yet moved;
+      - the final range is 1..N, every value <= N <= offset < offset+1, so it
+        cannot collide with a staged id.
+    Disjoint by construction, for any input.
 
     Ordered by (start_time, job_id) so rows sharing a timestamp keep their
     existing relative order rather than being permuted arbitrarily.
@@ -378,8 +394,9 @@ def renumber_by_start_time(con):
         "select job_id from job_history order by start_time, job_id").fetchall()
     if not rows:
         return
-    offset = con.execute(
+    current_max = con.execute(
         "select coalesce(max(job_id), 0) from job_history").fetchone()[0]
+    offset = max(current_max, len(rows))
     for position, row in enumerate(rows, start=1):
         con.execute("update job_history set job_id = ? where job_id = ?",
                     (offset + position, row[0]))
@@ -483,8 +500,60 @@ def main():
                  "stop it before merging; its cached job_totals would land on "
                  "top of the merge at the next print." % alive)
 
+    # Re-read and re-classify now that the liveness guard has passed.
+    #
+    # Everything above was computed from a snapshot taken BEFORE that check, and
+    # the daemons are stopped asynchronously (start-stop-daemon -K then sleep 1,
+    # plus a bare killall). A daemon finishing its shutdown flush in that window
+    # closes the last print and writes its job_totals contribution - and the
+    # stale plan would then insert a row the target already has, or write
+    # pre-flush totals back over it.
+    #
+    # Deliberately ABORT on any difference rather than silently applying the
+    # newer plan: the operator just approved a specific set of counts, and
+    # quietly doing something else is the lie this script's own dry run exists
+    # to prevent.
+    fresh_target, _ = load_jobs(into_db)
+    fresh_source, _ = load_jobs(source_db)
+    fresh = classify(fresh_source, fresh_target)
+    if [len(bucket) for bucket in fresh] != [len(new), len(dupes), len(skipped)]:
+        sys.exit(
+            "refusing: the databases changed between the dry run and now\n"
+            "(was %d insert / %d duplicate / %d skipped, now %d / %d / %d).\n"
+            "Something is still writing to them. Stop it and run this again."
+            % (len(new), len(dupes), len(skipped),
+               len(fresh[0]), len(fresh[1]), len(fresh[2])))
+
     backup = "%s.bak-merge-%s" % (into_db, time.strftime("%Y%m%d_%H%M%S"))
     shutil.copy2(into_db, backup)
+    # The backup is the ENTIRE rollback story, and until it is checked it is
+    # only a file with a reassuring name. A copy interrupted by a full
+    # /usr/data leaves a truncated database indistinguishable from a good one.
+    # Verify it opens, passes an integrity check, and holds the rows we counted,
+    # then force it to disk - an fsync-less copy can be invalidated by a power
+    # cut even after the filesystem reported the write complete.
+    try:
+        check = sqlite3.connect("file:%s?mode=ro" % backup, uri=True)
+        try:
+            status = check.execute("pragma integrity_check").fetchone()[0]
+            backed_up = check.execute(
+                "select count(*) from job_history").fetchone()[0]
+        finally:
+            check.close()
+    except sqlite3.Error as why:
+        os.remove(backup)
+        sys.exit("refusing: the backup could not be re-opened (%s). Nothing "
+                 "was written." % why)
+    if status != "ok" or backed_up != len(target_rows):
+        os.remove(backup)
+        sys.exit("refusing: the backup is not a faithful copy (integrity=%s, "
+                 "%d of %d rows). Nothing was written."
+                 % (status, backed_up, len(target_rows)))
+    fd = os.open(backup, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
     # Name the daemon that actually owns the file being replaced. The forward
     # merge writes Moonraker's database and the reverse one writes nexusp's, so
     # a fixed "stop Moonraker" tells the user to stop the wrong daemon on the

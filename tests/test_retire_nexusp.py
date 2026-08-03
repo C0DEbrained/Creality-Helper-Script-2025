@@ -408,6 +408,51 @@ echo SILENT_SUCCESS; exit 2
     assert "REPORTED" in r.stdout, r.stdout + r.stderr
 
 
+def test_a_closed_stdin_cancels_rather_than_killing_the_helper(tmp_path):
+    """`read` returns non-zero on EOF, and under helper.sh's global set -e that
+    exits the whole helper with no message. Piping input, running over a dropped
+    SSH session, or any non-interactive invocation hits it. Failing to read an
+    answer is a "no", not a crash."""
+    (tmp_path / "initd").mkdir(exist_ok=True)
+    (tmp_path / "initd" / "CS56nexusp_service").write_text("#!/bin/sh\n")
+    (tmp_path / "mr").mkdir(exist_ok=True)
+    r = run_sh(f"""
+top_line(){{ :; }}; inner_line(){{ :; }}; hr(){{ :; }}; bottom_line(){{ :; }}; title(){{ :; }}
+MOONRAKER_FOLDER={tmp_path}/mr
+retire_nexusp < /dev/null
+echo SURVIVED
+""", tmp_path)
+    assert "SURVIVED" in r.stdout, r.stdout + r.stderr
+    assert "canceled" in r.stdout
+
+
+def test_the_rollback_cannot_abort_partway_through(tmp_path):
+    """A rollback that can itself exit under errexit turns a detected failure
+    into the persistent dead-port state it exists to prevent, halfway through
+    undoing it. Every step is best-effort and the outcome is reported from what
+    the printer looks like afterwards."""
+    (tmp_path / "initd").mkdir(exist_ok=True)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    shutil.copy(os.path.join(REPO, "files", "moonraker", "moonraker.conf"),
+                str(locked / "moonraker.conf"))
+    locked.chmod(0o555)
+    try:
+        r = run_sh(f"""
+MOONRAKER_CFG={locked}/moonraker.conf
+NGINX_CONF_FILE={tmp_path}/no-such-nginx.conf
+start_moonraker(){{ echo "(moonraker restarted)"; }}
+NEXUSP_RETIRE_STAGE=8
+nexusp_rollback_retire
+echo REACHED_THE_END
+""", tmp_path, want_sed=True)
+    finally:
+        locked.chmod(0o755)
+    assert "REACHED_THE_END" in r.stdout, r.stdout + r.stderr
+    assert "(moonraker restarted)" in r.stdout, "daemons must be restarted anyway"
+    assert "did not fully complete" in r.stdout, "and the shortfall must be said"
+
+
 # --------------------------------------------------------------------------
 # The /server/info verification, which decides whether a swap is rolled back
 # --------------------------------------------------------------------------

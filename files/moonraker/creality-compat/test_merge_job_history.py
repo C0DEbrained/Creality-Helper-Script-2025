@@ -402,6 +402,62 @@ def test_an_unreadable_cmdline_is_skipped_not_fatal(tmp_path):
     assert "nexusp" in REAL_MOONRAKER_RUNNING(proc)
 
 
+def test_a_corrupt_backup_aborts_before_the_first_write(monkeypatch, capsys,
+                                                        tmp_path):
+    """The backup is the ENTIRE rollback story, and until it is checked it is
+    just a file with a reassuring name. A copy cut short by a full /usr/data is
+    indistinguishable from a good one by filename alone — and restoring it
+    would destroy the history it was meant to protect."""
+    into = make_db(tmp_path / "into.db", [job(T0)])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400, filename="old.gcode")])
+
+    def truncating_copy(src, dst):
+        with open(dst, "wb") as fh:
+            fh.write(b"SQLite format 3\x00truncated")
+
+    monkeypatch.setattr(mjh.shutil, "copy2", truncating_copy)
+    with pytest.raises(SystemExit) as exc:
+        run_main(monkeypatch, capsys, into, source, "--apply")
+    assert "backup" in str(exc.value)
+    assert len(rows_of(into)) == 1, "the target must be untouched"
+    assert glob.glob(into + ".bak-merge-*") == [], "the bad backup must be removed"
+
+
+def test_a_database_changing_under_the_merge_aborts(monkeypatch, capsys, tmp_path):
+    """Everything is classified from a snapshot taken before the liveness check,
+    and the daemons stop asynchronously. If one finishes a shutdown flush in
+    that window the approved plan is stale — and applying it anyway would insert
+    a row the target now has, or write pre-flush totals back over it."""
+    into = make_db(tmp_path / "into.db", [job(T0)])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400, filename="old.gcode")])
+    real_load = mjh.load_jobs
+    calls = []
+
+    def load_then_mutate(db):
+        result = real_load(db)
+        calls.append(db)
+        if len(calls) == 2:  # after the dry-run pair, before the re-read
+            # A row that CHANGES THE PLAN: the daemon's shutdown flush lands the
+            # very print the merge was about to insert, so the approved
+            # "1 insert" becomes "1 duplicate" and applying the stale plan would
+            # write a second copy.
+            con = sqlite3.connect(into)
+            j = job(T0 - 86400, filename="old.gcode")
+            cols = [c for c in j if c != "job_id"]
+            con.execute("insert into job_history (%s) values (%s)"
+                        % (",".join(cols), ",".join("?" * len(cols))),
+                        tuple(j[c] for c in cols))
+            con.commit()
+            con.close()
+        return result
+
+    monkeypatch.setattr(mjh, "load_jobs", load_then_mutate)
+    with pytest.raises(SystemExit) as exc:
+        run_main(monkeypatch, capsys, into, source, "--apply")
+    assert "changed between the dry run" in str(exc.value)
+    assert glob.glob(into + ".bak-merge-*") == []
+
+
 def test_a_missing_database_exits_before_touching_anything(monkeypatch, capsys,
                                                           tmp_path):
     into = make_db(tmp_path / "into.db", [job(T0)])
@@ -692,6 +748,26 @@ def test_rows_sharing_a_start_time_keep_their_relative_order(monkeypatch, capsys
     run_main(monkeypatch, capsys, into, source, "--apply")
     by_id = [r["filename"] for r in rows_of(into, order="job_id")]
     assert by_id == ["old.gcode", "first.gcode", "second.gcode"]
+
+
+@pytest.mark.parametrize("ids", [[-2, -1], [-100, -1], [-1, 0], [0, 1]])
+def test_renumbering_handles_non_positive_existing_ids(monkeypatch, capsys,
+                                                       tmp_path, ids):
+    """SQLite's INTEGER PRIMARY KEY is a signed rowid alias, so negative and
+    zero ids are legal. Staging at `max(job_id) + n` alone puts the staging
+    range on top of the final 1..N range whenever the maximum is negative, and
+    the second pass then collides: `UNIQUE constraint failed`. The transaction
+    rolls back safely, but a valid database becomes unmergeable and the
+    retirement aborts with a traceback at the point both daemons are stopped.
+    """
+    into = make_db(tmp_path / "into.db",
+                   [job(T0 + i, job_id=jid, filename="f%d.gcode" % i)
+                    for i, jid in enumerate(ids)])
+    source = make_db(tmp_path / "src.db", [job(T0 - 86400, filename="old.gcode")])
+    run_main(monkeypatch, capsys, into, source, "--apply")
+    rows = rows_of(into, order="job_id")
+    assert [r["job_id"] for r in rows] == list(range(1, len(ids) + 2))
+    assert rows[0]["filename"] == "old.gcode"
 
 
 def test_renumbering_survives_a_second_run(monkeypatch, capsys, tmp_path):
