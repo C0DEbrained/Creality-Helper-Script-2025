@@ -12,8 +12,10 @@ set -e
 #
 # Services this option must never disable, whatever a later edit is tempted to add:
 #   klipper_service - Klipper itself.
-#   nexusp_service  - the touchscreen backend on :7125; the GUI holds an open
-#                     connection to it.
+#   nexusp_service  - the touchscreen backend on :7125. Retiring it is possible,
+#                     but it needs a compatibility shim for two JSON-RPC methods
+#                     the screen calls and a print-history merge, so it belongs
+#                     to Retire Nexusp Backend (retire_nexusp.sh) and not here.
 #   quintusp        - HAL for the LCD backlight, chassis LED, camera arbitration
 #                     and the power-loss GPIO. Disabling it breaks power-loss
 #                     recovery, and it can cancel a running print.
@@ -104,9 +106,12 @@ function creality_builtin_camera_fix_installed() {
 }
 
 # 0 = printing or paused, 1 = confirmed idle, 2 = could not be determined.
-# Both ports are consulted and any "printing" wins: helper Moonraker moves to 7126 on
-# this model (moonraker_nginx.sh), while nexusp answers on 7125 whether or not Moonraker
-# is installed. Only an explicitly known idle state counts as idle - anything else falls
+# Both ports are consulted and any "printing" wins, because which daemon answers which
+# port depends on whether nexusp has been retired: normally helper Moonraker is on 7126
+# (moonraker_nginx.sh) and nexusp on 7125, and after Retire Nexusp Backend the helper's
+# Moonraker is on 7125 and nothing is on 7126. Trying both covers either arrangement -
+# the unused port simply does not answer. Only an explicitly known idle state counts as
+# idle - anything else falls
 # through to 2 so the caller asks the user rather than assuming the printer is free.
 # jq is not available on the K1_2025 path, so the state is pulled out with sed/grep, and
 # the body is trimmed to the print_stats object first so an unrelated "state" key in

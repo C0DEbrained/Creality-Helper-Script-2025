@@ -58,6 +58,19 @@ function moonraker_3v3_message(){
 function configure_moonraker_nginx_k1_2025(){
   local nginx_conf
 
+  # Moonraker moves to 7126 because Creality's nexusp squats on 7125 - UNLESS
+  # Retire Nexusp Backend has already turned nexusp off, in which case 7125 is
+  # ours and the touchscreen is pointed at it. install_moonraker_nginx rm -f's
+  # moonraker.conf and re-copies the shipped one, so without this branch a
+  # Moonraker reinstall on a retired box put the port back to 7126 and wiped
+  # [creality_compat] while nexusp stayed disabled: nothing answered 7125, the
+  # touchscreen died, and there was no error anywhere to connect it to.
+  if nexusp_retired && ! nexusp_present; then
+    echo -e "Info: Nexusp is retired, keeping Moonraker on port 7125..."
+    nexusp_reapply_retired_config
+    return
+  fi
+
   if [ -f "$MOONRAKER_CFG" ]; then
     echo -e "Info: Setting Moonraker port to 7126..."
     sed -i 's/^port:[[:space:]]*7125$/port: 7126/' "$MOONRAKER_CFG"
