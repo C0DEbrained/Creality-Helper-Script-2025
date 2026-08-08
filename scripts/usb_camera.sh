@@ -18,8 +18,8 @@ function builtin_camera_message(){
   title 'Built-in Camera Fix' "${yellow}"
   inner_line
   hr
-  echo -e " в”‚ ${cyan}This allows to use the K1 2025 built-in camera with        ${white}в”‚"
-  echo -e " в”‚ ${cyan}Fluidd and Mainsail through mjpg-streamer.                  ${white}в”‚"
+  echo -e " │ ${cyan}This allows to use the K1 2025 built-in camera with          ${white}│"
+  echo -e " │ ${cyan}Fluidd and Mainsail through mjpg-streamer.                   ${white}│"
   hr
   bottom_line
 }
