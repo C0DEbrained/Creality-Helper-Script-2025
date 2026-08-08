@@ -8,7 +8,7 @@ set -e
 # of the reported firmware (check_fw_version, which returns /etc/version on the
 # K1_2025). Space-separated; extend as builds are confirmed. Anyone on an unlisted
 # build is asked to report it first rather than have klippy touched blindly.
-RESTORE_SHAPERS_SUPPORTED_FW="V1.0.0.22.20250711S"
+RESTORE_SHAPERS_SUPPORTED_FW="V1.0.0.22.20250711S V1.0.0.26.20251024S"
 
 function restore_input_shapers_message(){
   top_line
