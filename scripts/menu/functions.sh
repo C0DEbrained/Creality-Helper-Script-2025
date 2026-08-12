@@ -109,6 +109,10 @@ function remove_msg() {
   read -p "${white} Are you sure you want to remove ${green}${1} ${white}? (${yellow}y${white}/${yellow}n${white}): ${yellow}" $2
 }
 
+function disable_msg() {
+  read -p "${white} Are you sure you want to disable ${green}${1} ${white}? (${yellow}y${white}/${yellow}n${white}): ${yellow}" $2
+}
+
 function restore_msg() {
   read -p "${white} Are you sure you want to restore ${green}${1} ${white}? (${yellow}y${white}/${yellow}n${white}): ${yellow}" $2
 }

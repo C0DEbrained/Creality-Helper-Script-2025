@@ -9,6 +9,9 @@ function customize_menu_ui_k1_2025() {
   hr
   menu_option '1' 'Install' 'Creality Dynamic Logos for Fluidd'
   hr
+  menu_option '2' 'Disable' 'Creality Stock Services'
+  menu_option '3' 'Restore' 'Creality Stock Services'
+  hr
   inner_line
   hr
   bottom_menu_option 'b' 'Back to [Main Menu]' "${yellow}"
@@ -32,6 +35,22 @@ function customize_menu_k1_2025() {
           error_msg "Fluidd is needed, please install it first!"
         else
           run "install_creality_dynamic_logos" "customize_menu_ui_k1_2025"
+        fi;;
+      2)
+        if creality_services_absent; then
+          error_msg "No Creality stock services were found on this firmware!"
+        elif ! creality_services_pending; then
+          error_msg "Creality Stock Services are already disabled!"
+        else
+          run "disable_creality_services" "customize_menu_ui_k1_2025"
+        fi;;
+      3)
+        if creality_services_absent; then
+          error_msg "No Creality stock services were found on this firmware!"
+        elif ! creality_services_disabled_present; then
+          error_msg "Creality Stock Services are not disabled!"
+        else
+          run "restore_creality_services" "customize_menu_ui_k1_2025"
         fi;;
       B|b)
         clear; main_menu; break;;

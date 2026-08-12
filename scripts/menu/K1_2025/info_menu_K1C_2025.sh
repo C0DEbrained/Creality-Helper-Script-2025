@@ -41,6 +41,28 @@ function check_simplyprint_k1_2025() {
   fi
 }
 
+# Tri-state: the camera gate makes a partial disable a normal outcome, so a plain
+# tick would report a half-done state as finished. mDNS is opt-in and excluded.
+function check_creality_services_k1_2025() {
+  local svc any_disabled any_enabled
+  any_disabled=""
+  any_enabled=""
+  for svc in $(creality_core_services); do
+    if [ -f "$(creality_service_disabled_path "$svc")" ]; then
+      any_disabled="1"
+    elif [ -f "$svc" ]; then
+      any_enabled="1"
+    fi
+  done
+  if [ -z "$any_disabled" ]; then
+    echo -e "${red}✗"
+  elif [ -n "$any_enabled" ]; then
+    echo -e "${yellow}~"
+  else
+    echo -e "${green}✓"
+  fi
+}
+
 function info_menu_ui_k1_2025() {
   top_line
   title '[ INFORMATION MENU ]' "${yellow}"
@@ -84,6 +106,7 @@ function info_menu_ui_k1_2025() {
   hr
   subtitle '•CUSTOMIZATION:'
   info_line "$(check_file_k1_2025 "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_creality_services_k1_2025)" 'Creality Stock Services Disabled'
   hr
   inner_line
   hr
