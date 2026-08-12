@@ -66,6 +66,7 @@ function info_menu_ui_10se() {
   info_line "$(check_file_10se "$CREALITY_WEB_FILE")" 'Creality Web Interface'
   info_line "$(check_folder_10se "$GUPPY_SCREEN_FOLDER")" 'Guppy Screen'
   info_line "$(check_file_10se "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_file_10se "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   hr
   inner_line
   hr

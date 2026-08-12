@@ -74,6 +74,7 @@ function info_menu_ui_e5m() {
   info_line "$(check_file_e5m "$CREALITY_WEB_FILE")" 'Creality Web Interface'
   info_line "$(check_folder_e5m "$GUPPY_SCREEN_FOLDER")" 'Guppy Screen'
   info_line "$(check_file_e5m "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
+  info_line "$(check_file_e5m "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   hr
   inner_line
   hr

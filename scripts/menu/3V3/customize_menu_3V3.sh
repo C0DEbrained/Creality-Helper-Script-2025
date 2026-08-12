@@ -15,6 +15,9 @@ function customize_menu_ui_3v3() {
   hr
   menu_option '5' 'Install' 'Creality Dynamic Logos for Fluidd'
   hr
+  menu_option '6' 'Install' 'Block Creality Cloud Telemetry'
+  menu_option '7' 'Remove' 'Block Creality Cloud Telemetry'
+  hr
   inner_line
   hr
   bottom_menu_option 'b' 'Back to [Main Menu]' "${yellow}"
@@ -78,6 +81,18 @@ function customize_menu_3v3() {
           error_msg "Updated Fluidd is needed, please install it first!"
         else
           run "install_creality_dynamic_logos" "customize_menu_ui_3v3"
+        fi;;
+      6)
+        if [ -f "$CLOUD_BLOCK_SERVICE_FILE" ]; then
+          error_msg "Block Creality Cloud Telemetry is already installed!"
+        else
+          run "install_block_creality_cloud" "customize_menu_ui_3v3"
+        fi;;
+      7)
+        if [ ! -f "$CLOUD_BLOCK_SERVICE_FILE" ]; then
+          error_msg "Block Creality Cloud Telemetry is not installed!"
+        else
+          run "remove_block_creality_cloud" "customize_menu_ui_3v3"
         fi;;
       B|b)
         clear; main_menu; break;;
