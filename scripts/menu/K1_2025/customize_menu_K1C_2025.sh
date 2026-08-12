@@ -49,6 +49,7 @@ function customize_menu_k1_2025() {
           error_msg "Block Creality Cloud Telemetry is not installed!"
         else
           run "remove_block_creality_cloud" "customize_menu_ui_k1_2025"
+        fi;;
       4)
         if creality_services_absent; then
           error_msg "No Creality stock services were found on this firmware!"
