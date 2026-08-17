@@ -19,7 +19,11 @@ case "$1" in
 	;;
   reload|force-reload)
     echo "Reloading nginx..."
-	"$NGINX" -s reload
+	# NGINX_ARGS, not bare: without -c nginx opens /etc/nginx/nginx.conf, which
+	# does not exist on this board. The reload then fails and leaves the OLD
+	# config live while reporting nothing, so a config change looks applied and
+	# Fluidd 502s until somebody works out why.
+	"$NGINX" $NGINX_ARGS -s reload
 	;;
   restart)
 	"$0" stop

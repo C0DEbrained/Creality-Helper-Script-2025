@@ -56,19 +56,29 @@ function moonraker_3v3_message(){
 }
 
 function configure_moonraker_nginx_k1_2025(){
-  local nginx_conf
-
-  if [ -f "$MOONRAKER_CFG" ]; then
-    echo -e "Info: Setting Moonraker port to 7126..."
-    sed -i 's/^port:[[:space:]]*7125$/port: 7126/' "$MOONRAKER_CFG"
+  # Moonraker moves to 7126 because Creality's nexusp squats on 7125 - UNLESS
+  # Retire Nexusp Backend has already turned nexusp off, in which case 7125 is
+  # ours and the touchscreen is pointed at it. install_moonraker_nginx rm -f's
+  # moonraker.conf and re-copies the shipped one, so without this branch a
+  # Moonraker reinstall on a retired box put the port back to 7126 and wiped
+  # [creality_compat] while nexusp stayed disabled: nothing answered 7125, the
+  # touchscreen died, and there was no error anywhere to connect it to.
+  if nexusp_retired && ! nexusp_present; then
+    echo -e "Info: Nexusp is retired, keeping Moonraker on port 7125..."
+    # Guarded: these helpers now report write failures instead of letting
+    # errexit escape, and an unguarded call would abort the whole install.
+    if ! nexusp_reapply_retired_config; then
+      echo -e "${yellow}Warning: could not re-apply the retired configuration.${white}"
+      echo -e "${yellow}Nothing is answering port 7125 - run Retire Nexusp Backend${white}"
+      echo -e "${yellow}again to finish, or Restore Nexusp Backend to go back.${white}"
+    fi
+    return
   fi
 
-  for nginx_conf in "$NGINX_FOLDER"/nginx/nginx.conf /etc/nginx/nginx.conf; do
-    if [ -f "$nginx_conf" ]; then
-      echo -e "Info: Pointing Nginx Moonraker upstream to port 7126 in $nginx_conf..."
-      sed -i 's/server 127\.0\.0\.1:7125;/server 127.0.0.1:7126;/' "$nginx_conf"
-    fi
-  done
+  # One implementation of the swap, not two. Both directions have to stay exact
+  # inverses of each other, and a second hand-inlined copy of the same two seds
+  # is how they stop being.
+  nexusp_set_moonraker_port 7126 7125
 }
 
 function install_moonraker_nginx(){
@@ -132,6 +142,19 @@ function remove_moonraker_nginx(){
     case "${yn}" in
       Y|y)
         echo -e "${white}"
+        # On a retired box the touchscreen's ONLY backend is this Moonraker.
+        # Removing it while nexusp stays disabled leaves nothing bound to :7125
+        # - not now and not after any reboot - so the screen dies permanently
+        # with nothing connecting it to this menu entry. install_moonraker_nginx
+        # got this guard; the adjacent removal needs it just as much.
+        if [ "$model" = "K1_2025" ] && nexusp_retired && ! nexusp_present; then
+          error_msg "Nexusp Backend is retired, so this Moonraker is the touchscreen's only backend!"
+          echo -e " ${darkred}Removing it now would leave nothing answering port 7125 and${white}"
+          echo -e " ${darkred}the touchscreen dead permanently.${white}"
+          echo -e " ${cyan}Run Restore Nexusp Backend first, then remove.${white}"
+          echo
+          return
+        fi
         echo -e "Info: Stopping Moonraker and Nginx services..."
         stop_moonraker
         stop_nginx

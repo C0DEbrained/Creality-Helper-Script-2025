@@ -40,17 +40,20 @@ function set_paths() {
   
   # Moonraker #
   MOONRAKER_FOLDER="${USR_DATA}/moonraker"
+  MOONRAKER_ENV_PYTHON="${MOONRAKER_FOLDER}/moonraker-env/bin/python3"
   MOONRAKER_URL1="${HS_FILES}/moonraker/moonraker.tar.gz"
   MOONRAKER_URL2="${HS_FILES}/moonraker/moonraker.conf"
   MOONRAKER_URL3="${HS_FILES}/moonraker/moonraker.asvc"
   MOONRAKER_SERVICE_URL="${HS_FILES}/services/S56moonraker_service"
-  
+
   # Nginx #
   NGINX_FOLDER="${USR_DATA}/nginx"
+  NGINX_BIN="${NGINX_FOLDER}/sbin/nginx"
+  NGINX_CONF_FILE="${NGINX_FOLDER}/nginx/nginx.conf"
   NGINX_URL="${HS_FILES}/moonraker/nginx.tar.gz"
   NGINX_SERVICE_URL="${HS_FILES}/services/S50nginx"
   NGINX_CONF_URL="${HS_FILES}/moonraker/nginx.conf"
-  
+
   # Supervisor Lite #
   SUPERVISOR_FILE="$BIN_FOLDER/supervisorctl"
   SUPERVISOR_OPT_FILE="/opt/bin/supervisorctl"
@@ -214,7 +217,20 @@ function set_paths() {
   CREALITY_LOCAL_WEBRTC_SERVICE="${INITD_FOLDER}/CS59thirteenthp"
   CREALITY_AI_SERVICE="${INITD_FOLDER}/CS57solusp_service"
   CREALITY_MDNS_SERVICE="${INITD_FOLDER}/CS99mdns"
-  
+
+  # Retire Nexusp Backend (K1C 2025) #
+  # INITD_FOLDER is already model-branched above; nexusp only exists on the
+  # K1_2025, and the option using these is only reachable from its Customize
+  # menu. Both prefixes are listed because the init script name varies by
+  # firmware, the same way tools.sh already probes for both forms.
+  NEXUSP_SERVICE="${INITD_FOLDER}/CS56nexusp_service"
+  NEXUSP_SERVICE_LEGACY="${INITD_FOLDER}/S56nexusp_service"
+  CREALITY_COMPAT_FILE="${MOONRAKER_FOLDER}/moonraker/moonraker/components/creality_compat.py"
+  CREALITY_COMPAT_URL="${HS_FILES}/moonraker/creality-compat/creality_compat.py"
+  MERGE_JOB_HISTORY_URL="${HS_FILES}/moonraker/creality-compat/merge_job_history.py"
+  MOONRAKER_DB="${PRINTER_DATA_FOLDER}/database/moonraker-sql.db"
+  NEXUSP_DB="${PRINTER_DATA_FOLDER}/database/nexusp-sql.db"
+
   # Guppy Screen #
   GUPPY_SCREEN_FOLDER="${USR_DATA}/guppyscreen"
   GUPPY_SCREEN_URL1="${HS_FILES}/guppy-screen/guppy_update.cfg"

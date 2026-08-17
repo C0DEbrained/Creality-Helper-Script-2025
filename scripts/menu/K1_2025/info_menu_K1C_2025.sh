@@ -63,6 +63,40 @@ function check_creality_services_k1_2025() {
   fi
 }
 
+# Tri-state. `~` is not "half done" here, it is the state a firmware update
+# leaves behind: the service file recreated beside the disabled copy, losing the
+# race for port 7125 to Moonraker at every boot. Retire Nexusp Backend offers
+# the repair.
+function check_nexusp_retired_k1_2025() {
+  if nexusp_absent; then
+    # This firmware ships no nexusp in either form, so there is nothing to
+    # retire. A red cross here would read as an unfinished action on a printer
+    # where the action does not apply - the Customize menu already checks
+    # nexusp_absent first for the same reason.
+    echo -e "${cyan}-"
+  elif nexusp_resurrected; then
+    echo -e "${yellow}~"
+  elif nexusp_retired; then
+    echo -e "${green}✓"
+  else
+    echo -e "${red}✗"
+  fi
+}
+
+# The port Moonraker actually listens on, which is the whole point of retiring
+# nexusp - and the one thing a user needs to know before pasting any command
+# from a Klipper forum at this printer. Plain text, no colour escapes: info_line
+# pads on ${#status} and a second escaped field would push the box out of shape.
+function check_moonraker_port_k1_2025() {
+  local port
+  port="$(nexusp_moonraker_port)"
+  if [ -z "$port" ]; then
+    echo "port unknown"
+  else
+    echo "port $port"
+  fi
+}
+
 function info_menu_ui_k1_2025() {
   top_line
   title '[ INFORMATION MENU ]' "${yellow}"
@@ -109,6 +143,7 @@ function info_menu_ui_k1_2025() {
   info_line "$(check_file_k1_2025 "$FLUIDD_LOGO_FILE")" 'Creality Dynamic Logos for Fluidd'
   info_line "$(check_file_k1_2025 "$CLOUD_BLOCK_SERVICE_FILE")" 'Block Creality Cloud Telemetry'
   info_line "$(check_creality_services_k1_2025)" 'Creality Stock Services Disabled'
+  info_line "$(check_nexusp_retired_k1_2025)" "Nexusp Backend Retired (Moonraker on $(check_moonraker_port_k1_2025))"
   hr
   inner_line
   hr
