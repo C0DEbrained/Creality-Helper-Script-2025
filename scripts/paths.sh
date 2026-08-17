@@ -90,7 +90,11 @@ function set_paths() {
   # Klipper Gcode Shell Command #
   KLIPPER_SHELL_FILE="${KLIPPER_EXTRAS_FOLDER}/gcode_shell_command.py"
   KLIPPER_SHELL_URL="${HS_FILES}/gcode-shell-command/gcode_shell_command.py"
-  
+
+  # Extended Gcode Params #
+  EXTENDED_GCODE_PARAMS_FILE="${KLIPPER_EXTRAS_FOLDER}/extended_gcode_params.py"
+  EXTENDED_GCODE_PARAMS_URL="${HS_FILES}/extended-gcode-params/extended_gcode_params.py"
+
   # Klipper Adaptive Meshing & Purging #
   KAMP_FOLDER="${HS_CONFIG_FOLDER}/KAMP"
   KAMP_URL="${HS_FILES}/kamp"

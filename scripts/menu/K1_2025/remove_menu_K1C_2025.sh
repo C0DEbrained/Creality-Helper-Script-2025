@@ -25,6 +25,7 @@ function remove_menu_ui_k1_2025() {
   hr
   subtitle '•IMPROVEMENTS:'
   menu_option '11' 'Remove' 'Restore Input Shapers'
+  menu_option '12' 'Remove' 'Extended Gcode Params'
 #  hr
 #  subtitle '•IMPROVEMENTS:'
 #  disabled_menu_option ' 6' 'Remove' 'Klipper Adaptive Meshing & Purging'
@@ -167,6 +168,12 @@ function remove_menu_k1_2025() {
           error_msg "Restore Input Shapers is not installed!"
         else
           run "remove_restore_input_shapers" "remove_menu_ui_k1_2025"
+        fi;;
+      12)
+        if [ ! -f "$EXTENDED_GCODE_PARAMS_FILE" ]; then
+          error_msg "Extended Gcode Params is not installed!"
+        else
+          run "remove_extended_gcode_params" "remove_menu_ui_k1_2025"
         fi;;
 
 #      6)
