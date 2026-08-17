@@ -111,5 +111,8 @@ if [ -z "$model" ] && [ "$model" != "K1_2025" ] && [ ! -f $INITD_FOLDER/S58facto
 fi
 
 set_permissions
+# Repairs an existing /opt/etc/opkg.conf still pointing at the retired feed
+# host. Must not be able to fail the script -- this is the recovery tool.
+migrate_entware_feed_host || true
 update_menu
 main_menu
