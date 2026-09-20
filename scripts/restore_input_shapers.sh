@@ -11,7 +11,7 @@ set -e
 # (the CFS-C build) is bytecode-identical to .26 and has one user execution report.
 # Anyone on an unlisted build is asked to report it first rather than have klippy
 # touched blindly.
-RESTORE_SHAPERS_SUPPORTED_FW="V1.0.0.22.20250711S V1.0.0.23.20250722S V1.0.0.26.20251024S V1.1.0.27.20260424S"
+RESTORE_SHAPERS_SUPPORTED_FW="V1.0.0.22.20250711S V1.0.0.23.20250722S V1.0.0.24.20250826S V1.0.0.26.20251024S V1.1.0.27.20260424S"
 
 function restore_input_shapers_message(){
   top_line
